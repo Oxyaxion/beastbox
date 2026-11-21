@@ -4,19 +4,25 @@ Requirements: FreeBSD 15, ZFS (extended attributes required), a reverse proxy fo
 (`sysrc ntpd_enable=YES`: two-step verification codes allow 30 s of drift). Commands run as root.
 Single sign-on is optional and per tenant: see [Single sign-on](#single-sign-on-oidc) below.
 
+Three steps: the program **in the jail**, the datasets **on the host**, then the setup **in the jail** again.
+The datasets are mounted under the jail's root (`J`, e.g. `/usr/local/bastille/jails/beastbox/root`): each user's
+dataset then appears in the jail with no extra mount.
+
 ```sh
+# 1. In the jail: the account and the program (built binary from the release page, FreeBSD 15 amd64)
 pw useradd beastbox -d /nonexistent -s /usr/sbin/nologin
-# Built binary (FreeBSD 15 amd64), from the release page: the archive and its .sha256
 sha256sum -c beastbox-X.Y.Z-freebsd15-amd64.tar.xz.sha256 && tar -xf beastbox-X.Y.Z-freebsd15-amd64.tar.xz
 cd beastbox-X.Y.Z-freebsd15-amd64 && install -m 0555 beastbox /usr/local/bin/ && install -m 0555 rc.d/beastbox /usr/local/etc/rc.d/
 # Or from the sources: cargo build --release --locked, then target/release/beastbox and rc/beastbox
 
-# One dataset per tenant, one child per user (quota = their space)
+# 2. On the host: one dataset per tenant, one child per user (quota = their space)
+J=/usr/local/bastille/jails/beastbox/root
 zfs create -o mountpoint=none -o canmount=off -o xattr=sa -o compression=lz4 -o atime=off -o exec=off -o setuid=off zroot/beastbox
-zfs create -o mountpoint=/mnt/data/beastbox-alpha zroot/beastbox/alpha
+zfs create -o mountpoint=$J/mnt/data/beastbox-alpha zroot/beastbox/alpha
 zfs create -o quota=50G zroot/beastbox/alpha/alice
-chown -R beastbox:beastbox /mnt/data/beastbox-alpha && chmod 0700 /mnt/data/beastbox-alpha /mnt/data/beastbox-alpha/alice
 
+# 3. In the jail: owner (the beastbox account exists here), configuration, first user, start
+chown -R beastbox:beastbox /mnt/data/beastbox-alpha && chmod 0700 /mnt/data/beastbox-alpha /mnt/data/beastbox-alpha/alice
 install -m 0640 -g beastbox beastbox.example.toml /usr/local/etc/beastbox.toml   # adapt it (commented)
 su -m beastbox -c 'beastbox check-config'
 su -m beastbox -c 'beastbox user add --tenant alpha alice --admin'               # password shown once
@@ -84,7 +90,9 @@ covers the provider.
 
 ## Commands
 ```sh
-beastbox user add --tenant T NAME [--admin]   # create the dataset <data_root>/NAME first; password chosen at first sign-in
+beastbox user add --tenant T NAME [--admin]   # first, on the host: its dataset under the tenant's; password chosen at first sign-in
+                                               # --admin: recorded and shown on the Account page only, no extra
+                                               # permission anywhere (kept for a future need); all administration is this CLI
 beastbox user list --tenant T                  # name, role, active|disabled, 2fa|-
 beastbox user disable --tenant T NAME          # no sign-in, sessions ended, devices and links blocked; files kept
 beastbox user enable --tenant T NAME           # devices and links answer again
