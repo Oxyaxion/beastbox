@@ -1,0 +1,87 @@
+# Crates whose code uses `unsafe` (cargo geiger), or that geiger could not read: the baseline of 2026-11-20.
+# `scripts/check.sh` fails on a crate missing here. A new one is reviewed (why it needs `unsafe`, who maintains it),
+# then added with its reason (docs/dev/DEPS.md). Format: `name  # reason`.
+
+# unsafe used (baseline)
+argon2  # baseline 2026-11-20
+askama  # baseline 2026-11-20
+askama_derive  # baseline 2026-11-20
+askama_parser  # baseline 2026-11-20
+atomic-waker  # baseline 2026-11-20
+base64ct  # baseline 2026-11-20
+beastbox  # src/fs/ only (FFI, Capsicum)
+block-buffer  # baseline 2026-11-20
+bytes  # baseline 2026-11-20
+cmov  # baseline 2026-11-20
+const-oid  # baseline 2026-11-20
+crc32fast  # baseline 2026-11-20
+errno  # baseline 2026-11-20
+foldhash  # baseline 2026-11-20
+futures-core  # baseline 2026-11-20
+futures-task  # baseline 2026-11-20
+futures-util  # baseline 2026-11-20
+getrandom  # baseline 2026-11-20
+hashbrown  # baseline 2026-11-20
+hashlink  # baseline 2026-11-20
+http  # baseline 2026-11-20
+http-body  # baseline 2026-11-20
+http-body-util  # baseline 2026-11-20
+httparse  # baseline 2026-11-20
+hybrid-array  # baseline 2026-11-20
+hyper  # baseline 2026-11-20
+hyper-util  # baseline 2026-11-20
+itoa  # baseline 2026-11-20
+jpeg-decoder  # baseline 2026-11-20
+lazy_static  # baseline 2026-11-20
+libc  # baseline 2026-11-20
+libsqlite3-sys  # baseline 2026-11-20
+matchit  # baseline 2026-11-20
+memchr  # baseline 2026-11-20
+mio  # baseline 2026-11-20
+once_cell  # baseline 2026-11-20
+percent-encoding  # baseline 2026-11-20
+pin-project-lite  # baseline 2026-11-20
+proc-macro2  # baseline 2026-11-20
+pulldown-cmark  # baseline 2026-11-20
+pulldown-cmark-escape  # baseline 2026-11-20
+ring  # baseline 2026-11-20
+rusqlite  # baseline 2026-11-20
+rustls-pki-types  # baseline 2026-11-20
+serde_core  # baseline 2026-11-20
+serde_json  # baseline 2026-11-20
+sha1  # baseline 2026-11-20
+sha2  # baseline 2026-11-20
+sharded-slab  # baseline 2026-11-20
+signal-hook-registry  # baseline 2026-11-20
+slab  # baseline 2026-11-20
+smallvec  # baseline 2026-11-20
+socket2  # baseline 2026-11-20
+subtle  # baseline 2026-11-20
+syn  # baseline 2026-11-20
+sync_wrapper  # baseline 2026-11-20
+thread_local  # baseline 2026-11-20
+tokio  # baseline 2026-11-20
+toml_parser  # baseline 2026-11-20
+tracing  # baseline 2026-11-20
+tracing-core  # baseline 2026-11-20
+tracing-subscriber  # baseline 2026-11-20
+try-lock  # baseline 2026-11-20
+unicode-ident  # baseline 2026-11-20
+unicode-normalization  # baseline 2026-11-20
+winnow  # baseline 2026-11-20
+zeroize  # baseline 2026-11-20
+zmij  # baseline 2026-11-20
+
+# not readable by geiger 0.13 (parse error): listed so a change is still seen
+askama_macros  # unscanned, baseline 2026-11-20
+axum  # unscanned, baseline 2026-11-20
+blake2  # unscanned, baseline 2026-11-20
+cc  # unscanned, baseline 2026-11-20
+cpufeatures  # unscanned, baseline 2026-11-20
+crypto-common  # unscanned, baseline 2026-11-20
+ctutils  # unscanned, baseline 2026-11-20
+digest  # unscanned, baseline 2026-11-20
+hmac  # unscanned, baseline 2026-11-20
+password-hash  # unscanned, baseline 2026-11-20
+phc  # unscanned, baseline 2026-11-20
+rustls-webpki  # unscanned, baseline 2026-11-20

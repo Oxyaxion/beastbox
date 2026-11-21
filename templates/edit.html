@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}{{ lang.t("Edit") }} {{ name }} — Beastbox{% endblock %}
+{% block meta %}<script src="/static/text.js" defer></script>{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+{% include "crumbs.html" %}
+<form method="post" action="{{ action }}" class="editeur{% if preview.is_some() %} avec-apercu{% endif %}" data-editeur data-vue="{{ view }}">
+  <h1 class="invisible">{{ lang.t("Edit") }} {{ name }}</h1>
+  <div class="fiche-tete">
+    <img class="icone grande" src="/static/icons/{{ icon }}.svg" alt="" data-icone-nom>
+    <div class="nom-edition">
+      <label for="nom" class="invisible">{{ lang.t("File name") }}</label>
+      <input id="nom" name="name" class="champ-nom" data-types="{{ types }}" value="{{ new_name }}" maxlength="255" required spellcheck="false" autocomplete="off"{% if !name_error.is_empty() %} aria-invalid="true" aria-describedby="nom-erreur"{% else if linked %} aria-describedby="nom-lien"{% endif %}>
+      {% if !name_error.is_empty() %}<p class="alerte nom-erreur" id="nom-erreur" role="alert">{{ lang.t(name_error) }}</p>{% endif %}
+      {% if linked %}<p class="note nom-lien" id="nom-lien"><span class="ico ico-info" aria-hidden="true"></span> {{ lang.t("This file has a share link: renaming it ends the link.") }}</p>{% endif %}
+      <p class="meta">{{ size }}, {{ lang.t("modified on") }} <time>{{ date }}</time></p>
+    </div>
+  </div>
+  <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="etag" value="{{ etag }}">
+  {% if !conflict.is_empty() %}
+  <div class="alerte conflit" role="alert">
+    <p><strong>{{ lang.t("This file was changed elsewhere since you opened it") }}</strong> ({{ lang.t("version of") }} {{ conflict }}). {{ lang.t("Your text is kept below; nothing has been saved.") }}</p>
+    <p class="choix-conflit"><button type="submit" name="force" value="1">{{ lang.t("Replace it with my text") }}</button> <a class="bouton" href="{{ action }}">{{ lang.t("Discard my changes and reload") }}</a></p>
+  </div>
+  {% endif %}
+  <div class="editeur-zone">
+    <div class="editeur-saisie">
+      <label for="contenu" class="invisible">{{ lang.t("Contents of") }} {{ name }}</label>
+      <textarea id="contenu" name="text" class="editeur-texte {% if wrap %}replie{% else %}brut{% endif %}" rows="28" spellcheck="{% if wrap %}true{% else %}false{% endif %}" wrap="{% if wrap %}soft{% else %}off{% endif %}" maxlength="524288" data-lang="{{ syntax }}" autofocus>
+{{ text }}</textarea>
+    </div>
+    {% if markdown %}<section class="editeur-apercu" data-apercu aria-label="{{ lang.t("Preview") }}"{% if preview.is_none() %} hidden{% endif %}>
+      {% if let Some(h) = preview %}<p class="meta">{{ lang.t("Preview — not saved yet") }}</p><article class="apercu md">{{ h|safe }}</article>{% endif %}
+    </section>{% endif %}
+  </div>
+  <div class="editeur-barre">
+    <button type="submit" class="principal" data-enregistrer>{{ lang.t("Save") }}</button>
+    {% if markdown %}<button type="submit" name="apercu" value="1" aria-pressed="{% if preview.is_some() %}true{% else %}false{% endif %}">{{ lang.t("Preview") }}</button>{% endif %}
+    <a class="bouton" href="{{ view }}">{{ lang.t("Cancel") }}</a>
+    <span class="note js">{{ lang.t("Ctrl+S saves.") }}</span>
+    <span class="note">{{ lang.t("512 KiB at most.") }}</span>
+  </div>
+</form>
+</div>
+</div>
+{% endblock %}

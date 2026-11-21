@@ -1,0 +1,1 @@
+?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><bytes /><oc:size /><oc:id /><oc:fileid /><oc:dodURL /><odDC /permissions /><oc:checksums /><is-pted xmlns="/ns" />share-s xmlns="httpud.org/ns"/></d:prop></d:propfind>

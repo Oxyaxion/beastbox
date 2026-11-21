@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% import "tree.html" as t %}
+{% block title %}{{ title }} — Beastbox{% endblock %}
+{% block meta %}<meta name="csrf" content="{{ nav.csrf }}"><meta name="dav" content="{{ dav }}">{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+
+<div class="contenu">
+<div class="entete">
+  {% include "crumbs.html" %}
+  <div class="vues" role="group" aria-label="{{ lang.t("View") }}">
+    <a href="{{ view_list }}"{% if !grid %} aria-current="true"{% endif %}>{{ lang.t("List") }}</a>
+    <a href="{{ view_grid }}"{% if grid %} aria-current="true"{% endif %}>{{ lang.t("Grid") }}</a>
+  </div>
+</div>
+{% if !notice.is_empty() %}<p class="{% if notice_error %}alerte{% else %}info{% endif %}" role="{% if notice_error %}alert{% else %}status{% endif %}">{{ notice }}</p>{% endif %}
+
+{% if dir.is_empty() %}<details class="activite js" data-src="/web/activity" data-activite open aria-labelledby="t-activite">
+  <summary><h2 id="t-activite">{{ lang.t("Recent activity") }}</h2></summary>
+</details>{% endif %}
+<div class="outils">
+  <label class="bouton js principal"><span class="ico ico-upload"></span> {{ lang.t("Upload files") }} <input type="file" multiple data-upload hidden></label>
+  <label class="bouton js"><span class="ico ico-upload"></span> {{ lang.t("Upload a folder") }} <input type="file" webkitdirectory multiple data-upload hidden></label>
+  <button type="button" class="js" popovertarget="menu-nouveau" aria-haspopup="menu"><span class="ico ico-plus"></span> {{ lang.t("New") }} <span class="ico ico-chevron" aria-hidden="true"></span></button>
+  <div id="menu-nouveau" popover class="menu-nouveau" role="menu" aria-label="{{ lang.t("New") }}">
+    <button type="button" role="menuitem" data-action="mkdir"><img class="icone" src="/static/icons/folder.svg" alt=""> {{ lang.t("Folder") }}</button>
+    <button type="button" role="menuitem" data-action="mkfile"><img class="icone" src="/static/icons/text.svg" alt=""> {{ lang.t("Text file") }}</button>
+  </div>
+  <span class="espace"></span>
+  <a class="bouton discret" href="{{ zip }}"><span class="ico ico-download"></span> {{ lang.t("Download all") }}</a>
+  <a class="bouton discret" href="{{ details }}"><span class="ico ico-info"></span> {{ lang.t("Tags and sharing") }}</a>
+</div>
+<noscript><p class="note">{{ lang.t("Without JavaScript: navigation, download, move and bulk delete; uploading requires JavaScript.") }}</p></noscript>
+<div class="depot js" data-dropzone>{{ lang.t("Drop files or folders here to upload them. To move an item, drag it onto a folder.") }}</div>
+<ul class="envois" data-uploads aria-live="polite"></ul>
+{% if truncated %}<p class="alerte">{{ lang.t("This folder holds too many items: only the first 10,000 are taken into account (use a sync client).") }}</p>{% endif %}
+
+<form method="post" action="/web/bulk" id="selection" data-bulk>
+  <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="dir" value="{{ dir }}">
+
+  {% if grid %}
+  <ul class="grille-fichiers" data-contenu>
+  {% for r in rows %}
+    <li class="carte-fichier{% if r.target %} vise{% endif %}"{% if r.target %} id="vise"{% endif %} draggable="true" data-dav="{{ r.dav }}" data-name="{{ r.name }}" data-details="{{ r.details }}"{% if r.is_dir %} data-dir{% endif %}>
+      <label class="coche"><input type="checkbox" name="item" value="{{ r.name }}"><span class="invisible">{{ lang.t("Select") }} {{ r.name }}</span></label>
+      <button type="button" class="etoile js" data-etoile aria-pressed="{% if r.favorite %}true{% else %}false{% endif %}" title="{{ lang.t("Star") }}" aria-label="{{ lang.t("Star") }} {{ r.name }}">{% if r.favorite %}★{% else %}☆{% endif %}</button>
+      <a href="{{ r.url }}"{% if r.previewable %} data-preview{% endif %}>
+        {% if !r.thumb.is_empty() %}<img class="vignette" loading="lazy" decoding="async" src="{{ r.thumb }}" alt="">{% else %}<span class="vignette"><img class="icone grande" src="/static/icons/g-{{ r.icon }}.svg" alt=""></span>{% endif %}
+        <span class="nom">{{ r.name }}</span>
+      </a>
+      <span class="meta">{% if r.is_dir %}{{ lang.t("Folder") }}{% else %}{{ r.size }}{% endif %}</span>
+    </li>
+  {% endfor %}
+  </ul>
+  {% else %}
+  <table class="liste" data-contenu>
+    <caption class="invisible">{{ lang.t("Folder contents") }}</caption>
+    <colgroup><col class="c-coche"><col><col class="c-taille"><col class="c-date"><col class="c-tags"><col class="c-actions"></colgroup>
+    <thead><tr>
+      <th scope="col"><input type="checkbox" class="js" data-all aria-label="{{ lang.t("Select all") }}"></th>
+      {% for c in heads %}<th scope="col"{% if !c.class.is_empty() %} class="{{ c.class }}"{% endif %}{% if !c.aria.is_empty() %} aria-sort="{{ c.aria }}"{% endif %}><a href="{{ c.href }}">{{ c.label }}{% if c.aria == "ascending" %}<span class="sens" aria-hidden="true">↑</span>{% else if c.aria == "descending" %}<span class="sens" aria-hidden="true">↓</span>{% endif %}</a></th>
+    {% endfor %}
+      <th scope="col"><span class="invisible">{{ lang.t("Actions") }}</span></th>
+    </tr></thead>
+    <tbody>
+    {% for r in rows %}
+    <tr{% if r.target %} id="vise" class="vise"{% endif %} draggable="true" data-dav="{{ r.dav }}" data-name="{{ r.name }}" data-details="{{ r.details }}"{% if r.is_dir %} data-dir{% endif %}>
+      <td><input type="checkbox" name="item" value="{{ r.name }}" aria-label="{{ lang.t("Select") }} {{ r.name }}"></td>
+      <td class="nom"><div class="cellule"><img class="icone" src="/static/icons/{{ r.icon }}.svg" alt=""><span class="nom-lieu"><span class="nom-ligne"><a href="{{ r.url }}" title="{{ r.name }}">{{ r.name }}</a><button type="button" class="etoile js" data-etoile aria-pressed="{% if r.favorite %}true{% else %}false{% endif %}" title="{{ lang.t("Star") }}" aria-label="{{ lang.t("Star") }} {{ r.name }}">{% if r.favorite %}★{% else %}☆{% endif %}</button></span><span class="lieu tel-seul">{% if r.is_dir %}{{ lang.t("Folder") }}{% else %}{{ r.size }}{% endif %} · <time>{{ r.date }}</time></span></span></div></td>
+      <td class="num">{{ r.size }}</td>
+      <td class="date"><time>{{ r.date }}</time></td>
+      <td class="tags-cell">{% for t in r.tags %}<a class="tag" href="/web/search?q=tag%3A{{ t|urlencode_strict }}">{{ t }}</a> {% endfor %}</td>
+      <td class="actions"><div class="boutons">
+        {% if r.previewable %}<button type="button" class="js" data-action="preview" title="{{ lang.t("Preview") }}" aria-label="{{ lang.t("Preview of") }} {{ r.name }}"><span class="ico ico-eye"></span></button>{% else %}<span class="sans-apercu js" aria-hidden="true"></span>{% endif %}
+        <button type="button" class="js" data-action="rename" title="{{ lang.t("Rename") }}" aria-label="{{ lang.t("Rename") }} {{ r.name }}"><span class="ico ico-edit"></span></button>
+        <button type="button" class="js" data-action="move" popovertarget="deplacer" title="{{ lang.t("Move or copy") }}" aria-label="{{ lang.t("Move or copy") }} {{ r.name }}"><span class="ico ico-move"></span></button>
+        <a class="bouton-icone" href="{{ r.details }}" title="{{ lang.t("Details, tags and sharing") }}" aria-label="{{ lang.t("Details of") }} {{ r.name }}"><span class="ico ico-info"></span></a>
+        <button type="button" class="js danger" data-action="delete" title="{{ lang.t("Delete") }}" aria-label="{{ lang.t("Delete") }} {{ r.name }}"><span class="ico ico-trash"></span></button>
+      </div></td>
+    </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  <div class="dock" data-bulkbar>
+    <span class="dock-compte" data-count aria-live="polite">{{ lang.t("Selection") }}</span>
+    <button type="submit" name="op" value="zip"><span class="ico ico-download"></span> {{ lang.t("Download") }}</button>
+    <button type="button" class="js" data-action="rename" data-renommer-un hidden><span class="ico ico-edit"></span> {{ lang.t("Rename") }}</button>
+    <button type="submit" name="op" value="duplicate"><span class="ico ico-copy"></span> {{ lang.t("Duplicate") }}</button>
+    <button type="button" popovertarget="deplacer"><span class="ico ico-move"></span> {{ lang.t("Move or copy…") }}</button>
+    <button type="submit" name="op" value="delete" class="danger" data-confirm="{{ lang.t("Move the selection to the trash?") }}"><span class="ico ico-trash"></span> {{ lang.t("Delete") }}</button>
+    <button type="button" class="js" data-action="unselect" title="{{ lang.t("Unselect all") }}" aria-label="{{ lang.t("Unselect all") }}">✕</button>
+  </div>
+
+  <div id="deplacer" popover class="fenetre" data-pick aria-labelledby="deplacer-titre">
+    <h2 id="deplacer-titre">{{ lang.t("Move or copy to…") }}</h2>
+    <p class="note" data-move-count>{{ lang.t("Choose the destination folder.") }}</p>
+    <ul class="arbre" data-arbre>{% call t::tree(side.tree, true) %}{% endcall %}</ul>
+    <p class="choix">
+      <button type="button" popovertarget="deplacer" popovertargetaction="hide">{{ lang.t("Cancel") }}</button>
+      {# The current folder chosen: only "Duplicate" (moving there would do nothing; app.css, `data-ici`). #}
+      <button type="submit" name="op" value="copy" class="copier-ici" data-move>{{ lang.t("Copy here") }}</button>
+      <button type="submit" name="op" value="duplicate" class="dupliquer-ici principal">{{ lang.t("Duplicate") }}</button>
+      <button type="submit" name="op" value="move" class="principal deplacer-ici" data-move>{{ lang.t("Move here") }}</button>
+    </p>
+  </div>
+</form>
+{% if rows.is_empty() %}<p class="vide">{{ lang.t("This folder is empty. Drop files here, or create a folder.") }}</p>{% endif %}
+{% if total > 0 %}
+<div class="pied">
+  <span class="pied-compte num">{% if pages > 1 %}{{ first }}–{{ last }} {{ lang.t("of") }} {% endif %}{{ total }} {{ lang.t("item") }}{% if total > 1 %}s{% endif %}</span>
+  {% if pages > 1 %}<nav class="pages" aria-label="{{ lang.t("Pages") }}">{% if !prev.is_empty() %}<a href="{{ prev }}" rel="prev">{{ lang.t("Previous page") }}</a> {% endif %}<span>{{ lang.t("Page") }} {{ page_no }} {{ lang.t("of") }} {{ pages }}</span>{% if !next.is_empty() %} <a href="{{ next }}" rel="next">{{ lang.t("Next page") }}</a>{% endif %}</nav>{% endif %}
+  {% if sizes.len() > 1 %}
+  <form method="get" class="par-page" data-par-page>
+    <input type="hidden" name="sort" value="{{ sort }}"><input type="hidden" name="desc" value="{% if desc %}1{% else %}0{% endif %}">
+    {% if !view_param.is_empty() %}<input type="hidden" name="view" value="{{ view_param }}">{% endif %}
+    <label>{{ lang.t("Show") }} <select name="n">{% for (s, on) in sizes %}<option value="{{ s }}"{% if on %} selected{% endif %}>{{ s }}</option>{% endfor %}</select> {{ lang.t("per page") }}</label>
+    <button type="submit" class="nojs">{{ lang.t("OK") }}</button>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+</div>
+</div>
+
+<aside class="panneau" data-panel hidden aria-label="{{ lang.t("Preview") }}">
+  <div class="panneau-tete"><a data-panel-open href="#">{{ lang.t("Open details") }}</a> <button type="button" data-panel-close aria-label="{{ lang.t("Close preview") }}">✕</button></div>
+  <div data-panel-body></div>
+</aside>
+{% include "dialog.html" %}
+{% endblock %}

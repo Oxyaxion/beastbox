@@ -1,0 +1,1 @@
+{% import "tree.html" as t %}<ul>{% call t::tree(nodes, pick) %}{% endcall %}{% if nodes.is_empty() %}<li class="note">{{ lang.t("No subfolder") }}</li>{% endif %}</ul>

@@ -1,0 +1,30 @@
+[graph]
+targets = ["x86_64-unknown-freebsd"]
+
+[advisories]
+yanked = "deny"
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0", "Unlicense", "Zlib"]
+private = { ignore = true }
+# IJG: jpeg-encoder only (client thumbnails); its attribution is at the bottom of the README.
+# ISC: ring, rustls-webpki and untrusted only (OIDC TLS client), per crate, decided by the owner on 2026-11-18.
+exceptions = [
+    { crate = "jpeg-encoder", allow = ["IJG"] },
+    { crate = "ring", allow = ["ISC"] },
+    { crate = "rustls-webpki", allow = ["ISC"] },
+    { crate = "untrusted", allow = ["ISC"] },
+]
+
+[bans]
+# A second version of a crate is a second thing to audit: refused, except the two the upstream crates impose.
+multiple-versions = "deny"
+wildcards = "deny"
+skip = [
+    { crate = "getrandom@0.2.17", reason = "ring 0.17 (OIDC TLS client) still uses getrandom 0.2" },
+    { crate = "syn@2.0.119", reason = "tracing-attributes 0.1 still uses syn 2" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

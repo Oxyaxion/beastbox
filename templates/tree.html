@@ -1,0 +1,8 @@
+{# Tree rendered flat (see `Node` in src/web/mod.rs); `pick`: radio buttons for the `dest` field instead of links. #}
+{% macro tree(nodes, pick) %}
+{% for n in nodes %}<li><details data-src="/web/tree/{{ n.href }}"{% if n.open %} open data-loaded{% endif %}>
+<summary>{% if pick %}<label class="dossier"><input type="radio" name="dest" value="/{{ n.path }}" form="selection"{% if n.current %} data-ici{% endif %}> <span>{{ n.name }}</span></label>{% else %}<a class="dossier" href="/web/files/{{ n.href }}"{% if n.current %} aria-current="page"{% endif %}>{{ n.name }}</a>{% endif %}</summary>
+{% if n.open %}<ul>{% else %}</details></li>{% endif %}
+{% for _ in 0..n.close %}</ul></details></li>{% endfor %}
+{% endfor %}
+{% endmacro %}

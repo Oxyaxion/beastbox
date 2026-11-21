@@ -1,0 +1,1 @@
+<?xml version="1.0" encoding="UTF-8"?><d:searchrequest xmlns:d="DAV:" xmlns:oc="http://nextcloud.com/ns"><d:basicsearcd:rom><d:where><d:and><d:is-collection/><d:eq><d:prop><oc:f/vorite xmlns:oc="http://owncloud.org/ns"/></d:prop><d:literal>yes</d:literal></d:eq></d:and></d:whit><d:nr</d:basicsearchrequest>

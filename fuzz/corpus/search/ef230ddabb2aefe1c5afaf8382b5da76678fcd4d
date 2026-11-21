@@ -1,0 +1,1 @@
+<ml version="1.0" encoding="UTF-8"?><d:searchrequest xmlns:d="DAV:" xmlns:oc="hextcloud"><d:basicsearch><d:$elect><d:prop><d:displayname/><d:getcontenttype/><oc:favorite xmlnch><d:$elect><d:prop><d:displayname/><d:getcontenttype/><oc:favorsplayname/><d:getcontenttype/><select>

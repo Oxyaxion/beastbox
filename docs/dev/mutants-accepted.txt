@@ -1,0 +1,26 @@
+# Surviving mutants accepted as equivalent (the code behaves the same), one per line, as cargo-mutants names them but
+# without the line and column (they move with the code):
+#   src/file.rs: change  # why it is equivalent
+# Anything else that survives stops scripts/check.sh --long (and so a release). Details in VALIDATION.md §2c.
+src/auth/totp.rs: replace | with ^ in base32  # the low 8 bits are zero after << 8: | and ^ give the same value
+src/auth/mod.rs: replace == with != in Failures::record_code_at  # only decides when a log line is written; the block itself is tested (code_failures_are_limited_per_account)
+src/config.rs: replace == with != in Config::load  # the two conditions only choose a startup warning line: no behaviour changes (nothing in a test can observe a log)
+src/db/mod.rs: replace match guard f.code == rusqlite::ErrorCode::ConstraintViolation with true in Db::user_add_oidc  # the guard only picks the message of a failed INSERT, and every failure reachable there is a constraint (unique key, foreign key, check): same text
+src/db/mod.rs: replace match guard f.code == rusqlite::ErrorCode::ConstraintViolation with true in Db::user_oidc_link  # same: the only unique index of that UPDATE is the identity one
+src/auth/oidc.rs: replace || with && in read_flow  # the length guard is a first bound: a longer cookie fails the MAC (its payload is not signed with the tenant key) or the shape checks below
+src/auth/oidc.rs: replace > with == in read_flow  # same guard: no cookie a flow can mint reaches MAX_COOKIE, whatever the comparison
+src/auth/oidc.rs: replace > with >= in read_flow  # same guard, one byte of margin
+src/auth/oidc_net.rs: replace + with * in https  # the bound is checked again on the collected bytes (bytes.len() > MAX_PROVIDER_JSON): same refusal
+src/auth/oidc_net.rs: replace > with == in https  # the collector is bounded to MAX+1, so only MAX and MAX+1 are reachable: `==` accepts and refuses exactly where `>` does
+src/dav/write.rs: replace > with >= in writable_tenant  # the guard only skips a statvfs when the reserve is disabled (min = 0); `available >= 0` is always true, so the outcome is the same unless statvfs itself fails, which no test can provoke
+src/fs/casper.rs: replace <impl std::fmt::Debug for CasperNet>::fmt -> std::fmt::Result with Ok(Default::default())  # debug formatting only, nothing else changes
+src/fs/casper.rs: replace | with ^ in CasperNet::limit  # the three mode bits (NAME2ADDR, CONNECT, CONNECTDNS) are distinct: or and xor give the same value
+src/fs/casper.rs: replace || with && in CasperNet::limit  # cap_limit_get does not fail in practice (casperd answers for system.net); a null list is refused on both sides
+src/fs/casper.rs: replace && with || in CasperNet::limit  # diverges only if the service omits a limit it was given (`connect`); casperd reports what was set, and both sides accept when no fixed endpoint is declared
+src/fs/casper.rs: replace & with | in CasperNet::limit  # the read-back cannot see fewer bits than were set (casperd refuses to widen); `&` and `|` agree on every value it can report
+src/fs/casper.rs: replace || with && in CasperNet::limit  # refuses only when one of the two checks fails, which the service cannot make happen for a channel it just limited
+src/fs/casper.rs: replace < with == in CasperNet::connect  # socket() cannot return 0 here (descriptors 0-2 are open): only a negative value is a failure
+src/fs/casper.rs: replace < with <= in CasperNet::connect  # same: fd 0 is not reachable for a socket in this process
+src/fs/casper.rs: replace <impl Drop for CasperNet>::drop with ()  # the channels would leak until the process exits; nothing observable within a test
+src/fs/casper.rs: replace | with ^ in CasperNet::connect  # SOCK_STREAM and SOCK_CLOEXEC are distinct bits: or and xor give the same value
+src/web/oidc.rs: replace < with <= in discovery  # elapsed is an Instant in nanoseconds: < and <= differ only at exactly 30 s, which no test can hit without a clock

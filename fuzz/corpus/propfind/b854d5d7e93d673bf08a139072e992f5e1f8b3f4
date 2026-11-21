@@ -1,0 +1,1 @@
+<?xmlversion="1.0" ?><d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns"><d:prop><d:resourcetype /><dot /><oc:downloadURL /><oc:permissions /><oc:downloadURL /><oc:dDC /><oc:permissions /oc:ch/><is-ept/><shtr-eaypes xmlns="http://owncloud.org/ns"/></d:prop></d:propfind>

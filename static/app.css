@@ -1,0 +1,733 @@
+/* Beastbox — a single stylesheet, no dependency. Light and dark, responsive, keyboard focus always visible.
+   Stance: a tool's interface, calm (granite and moss); a single strong element, the selection's dark dock. */
+:root {
+  color-scheme: light;
+  --fond: light-dark(#f3f5f4, #141716); --surface: light-dark(#fff, #1b1f1d); --texte: light-dark(#1c2321, #e4e9e7);
+  --doux: light-dark(#5f6c68, #96a19c); --bord: light-dark(#dde3e0, #2c3330); --survol: light-dark(#eef3f0, #222826);
+  --accent: light-dark(#2f6b4f, #7fc3a0); --accent-fond: light-dark(#e2eee7, #1f2c26); --sur-accent: light-dark(#fff, #0e1a14);
+  --encre: light-dark(#1f2925, #e4e9e7); --sur-encre: light-dark(#eef3f0, #161a18); --alerte: light-dark(#b3261e, #ff9a8f);
+  --alerte-fond: light-dark(#fbeae8, #3a1f1c);
+  --dock-alerte: light-dark(#ff9a8f, #a3261c); --info: var(--accent); --info-fond: var(--accent-fond);
+  --rayon: 6px; --ombre: 0 1px 2px light-dark(rgb(20 30 25 / 6%), transparent);
+}
+/* Themes (Account page; data-theme and data-mode set by theme.js). Each color is a light-dark() pair: the mode
+   (light by default and without JavaScript, dark, or like the system) only picks color-scheme. Blanc is the default
+   (no data-theme: also without JavaScript and on the public pages); Vert (the base colors above), Nord, Catppuccin and
+   Gruvbox follow the mode; Graphite and Blanc are fixed, colorless, and win over the mode. */
+:root[data-theme="nord"] {
+  --fond: light-dark(#eceff4, #2e3440); --surface: light-dark(#fff, #3b4252); --texte: light-dark(#2e3440, #eceff4);
+  --doux: light-dark(#4c566a, #aeb7c6); --bord: light-dark(#d8dee9, #4c566a); --survol: light-dark(#e5e9f0, #434c5e);
+  --accent: light-dark(#5e81ac, #88c0d0); --accent-fond: light-dark(#dde6f0, #3e4f5f); --sur-accent: light-dark(#fff, #2e3440);
+  --encre: light-dark(#2e3440, #eceff4); --sur-encre: light-dark(#eceff4, #2e3440);
+}
+:root[data-theme="catppuccin"] {
+  --fond: light-dark(#e6e9ef, #181825); --surface: light-dark(#eff1f5, #1e1e2e); --texte: light-dark(#4c4f69, #cdd6f4);
+  --doux: light-dark(#6c6f85, #a6adc8); --bord: light-dark(#ccd0da, #313244); --survol: light-dark(#dce0e8, #262637);
+  --accent: light-dark(#8839ef, #cba6f7); --accent-fond: light-dark(#e8dcfb, #352d4a); --sur-accent: light-dark(#fff, #1e1e2e);
+  --encre: light-dark(#4c4f69, #cdd6f4); --sur-encre: light-dark(#eff1f5, #181825); --alerte: light-dark(#d20f39, #f38ba8);
+  --alerte-fond: light-dark(#f8dde3, #3d2533);
+}
+:root[data-theme="gruvbox"] {
+  --fond: light-dark(#f2e5bc, #1d2021); --surface: light-dark(#fbf1c7, #282828); --texte: light-dark(#3c3836, #ebdbb2);
+  --doux: light-dark(#7c6f64, #a89984); --bord: light-dark(#d5c4a1, #3c3836); --survol: light-dark(#ebdbb2, #32302f);
+  --accent: light-dark(#af3a03, #fe8019); --accent-fond: light-dark(#f3d9b5, #3c2a1e); --sur-accent: light-dark(#fbf1c7, #1d2021);
+  --encre: light-dark(#3c3836, #ebdbb2); --sur-encre: light-dark(#fbf1c7, #1d2021); --alerte: light-dark(#9d0006, #fb4934);
+  --alerte-fond: light-dark(#f5d6c6, #3c1f1e);
+}
+:root[data-mode="systeme"] { color-scheme: light dark; }
+:root[data-mode="sombre"] { color-scheme: dark; }
+:root[data-theme="graphite"] { color-scheme: dark; --fond: #202226; --surface: #2a2d32; --texte: #e8eaed; --doux: #a0a6ae; --bord: #3b3f46;
+  --survol: #33363c; --accent: #e8eaed; --accent-fond: #3d4148; --sur-accent: #202226; --encre: #e8eaed; --sur-encre: #202226;
+  --dock-alerte: #a3261c; --alerte: #ff8a80; --alerte-fond: #3a1d1b; --ombre: none; }
+:root[data-theme="blanc"], :root:not([data-theme]) { color-scheme: light; --fond: #fafafa; --surface: #fff; --texte: #111; --doux: #5c5c5c; --bord: #dadada;
+  --survol: #f2f2f2; --accent: #111; --accent-fond: #ebebeb; --sur-accent: #fff; --encre: #111; --sur-encre: #f2f2f2;
+  --dock-alerte: #ff9a8f; --alerte: #b3261e; --alerte-fond: #fbeae8; --ombre: 0 1px 2px rgb(0 0 0 / 6%); }
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+/* Text size (Account › Appearance, set by theme.js): everything is in rem/em, so the whole page grows with the root
+   (15 px at the browser's default, 17 px, 19 px); borders stay at 1 px. */
+:root[data-taille="grand"] { font-size: 112.5%; }
+:root[data-taille="tres-grand"] { font-size: 125%; }
+body { margin: 0; font: .9375rem/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--fond); color: var(--texte); }
+main { padding: 1.25rem 1.5rem 6rem; max-width: 132rem; margin: 0 auto; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+h1 { font-size: 1.4rem; font-weight: 650; margin: .5rem 0; } h2 { font-size: 1.1rem; font-weight: 650; margin: 1.5rem 0 .5rem; }
+.num, time { font-variant-numeric: tabular-nums; }
+
+/* Action icons: monochrome SVG masks, they take the text color (light and dark alike). */
+.ico { display: inline-block; width: 1.05rem; height: 1.05rem; flex: none; background: currentColor;
+  -webkit-mask: var(--i) center / contain no-repeat; mask: var(--i) center / contain no-repeat; }
+.ico-eye { --i: url(/static/icons/a-eye.svg); } .ico-edit { --i: url(/static/icons/a-edit.svg); }
+.ico-move { --i: url(/static/icons/a-move.svg); } .ico-trash { --i: url(/static/icons/a-trash.svg); }
+.ico-info { --i: url(/static/icons/a-info.svg); } .ico-download { --i: url(/static/icons/a-download.svg); }
+.ico-plus { --i: url(/static/icons/a-plus.svg); } .ico-upload { --i: url(/static/icons/a-upload.svg); }
+.ico-warn { --i: url(/static/icons/a-warn.svg); } .ico-check { --i: url(/static/icons/a-check.svg); }
+.ico-search { --i: url(/static/icons/a-search.svg); } .ico-menu { --i: url(/static/icons/a-menu.svg); }
+.ico-phone { --i: url(/static/icons/d-phone.svg); } .ico-desktop { --i: url(/static/icons/d-desktop.svg); }
+.ico-key { --i: url(/static/icons/d-key.svg); }
+
+/* Header */
+.barre { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: center; justify-content: space-between;
+  padding: .55rem 1.5rem; background: var(--surface); border-bottom: 1px solid var(--bord); }
+.barre nav { display: flex; flex-wrap: wrap; gap: .25rem 1.25rem; align-items: center; }
+.barre nav a { color: var(--doux); } .barre nav a:hover { color: var(--texte); text-decoration: none; }
+.logo { font-weight: 750; font-size: 1.1rem; color: var(--texte) !important; letter-spacing: -.01em;
+  display: inline-flex; align-items: center; gap: .4rem; }
+/* Beastbox mark: the little daemon in its box, a monochrome SVG mask (takes the text color). */
+.marque { display: inline-block; width: 1.6rem; height: 1.6rem; flex: none; background: currentColor;
+  -webkit-mask: url(/static/icons/logo.svg) center / contain no-repeat; mask: url(/static/icons/logo.svg) center / contain no-repeat; }
+.logo .marque { vertical-align: -.3rem; }
+.enligne { display: inline; margin: 0; }
+.recherche-barre { flex: 1; max-width: 26rem; margin: 0; }
+.recherche-barre input { width: 100%; background: var(--fond); }
+
+/* Search */
+.recherche { max-width: 56rem; }
+.champ-recherche input { font-size: 1.05rem; padding: .5rem .75rem; }
+.resultats { list-style: none; padding: 0; margin: .5rem 0; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); }
+.resultats li { display: flex; align-items: center; gap: .75rem; padding: .55rem .75rem; border-bottom: 1px solid var(--bord); }
+.resultats li:last-child { border-bottom: 0; }
+.resultat { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.resultat > a { color: var(--texte); font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.resultat .meta { font-size: .88em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+a.tag:hover { text-decoration: none; filter: brightness(.95); }
+.puce a { color: inherit; }
+.nom-corbeille { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Buttons and fields */
+button, .bouton { font: inherit; padding: .4rem .8rem; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--surface);
+  color: var(--texte); cursor: pointer; display: inline-flex; align-items: center; gap: .4rem; line-height: 1.3; }
+button:hover, .bouton:hover { border-color: var(--doux); text-decoration: none; }
+button:disabled { opacity: .45; cursor: default; }
+.principal { background: var(--accent); border-color: var(--accent); color: var(--sur-accent); }
+.principal:hover { border-color: var(--accent); filter: brightness(1.08); }
+.discret { border-color: transparent; background: transparent; color: var(--doux); }
+.danger { color: var(--alerte); }
+input, select { font: inherit; padding: .35rem .55rem; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--surface);
+  color: var(--texte); max-width: 100%; }
+input[type="checkbox"], input[type="radio"] { width: 1rem; height: 1rem; margin: 0; accent-color: var(--accent); vertical-align: middle; }
+
+/* Layout: tree on the left, content on the right */
+.dispo { display: grid; grid-template-columns: 19rem minmax(0, 1fr); gap: 2rem; align-items: start; }
+.cote { position: sticky; top: 1rem; max-height: calc(100vh - 2rem); overflow: auto; padding: .25rem 0; font-size: 1.05em; }
+
+/* Tree (sidebar and move dialog): nested <details>, rendered by the server */
+.arbre, .arbre ul { list-style: none; margin: 0; padding: 0; }
+.arbre ul { margin-left: .8rem; padding-left: .45rem; border-left: 1px solid var(--bord); }
+.arbre summary { display: flex; align-items: center; gap: .15rem; list-style: none; cursor: pointer; border-radius: var(--rayon); }
+.arbre summary::-webkit-details-marker { display: none; }
+.arbre summary::before { content: ""; width: 1.1rem; height: 1.1rem; flex: none; background: var(--doux); transition: transform .12s;
+  -webkit-mask: url(/static/icons/a-chevron.svg) center / .8rem no-repeat; mask: url(/static/icons/a-chevron.svg) center / .8rem no-repeat; }
+.arbre details[open] > summary::before { transform: rotate(90deg); }
+.arbre summary:hover { background: var(--survol); }
+.arbre .dossier { flex: 1; min-width: 0; padding: .2rem .35rem; color: var(--texte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arbre a.dossier[aria-current] { color: var(--accent); font-weight: 650; }
+.arbre label.dossier { display: flex; align-items: center; gap: .45rem; cursor: pointer; }
+.arbre label.dossier:has(input:checked) { color: var(--accent); font-weight: 650; }
+.arbre label.dossier:has(input:disabled) { color: var(--doux); cursor: default; }
+.arbre .note { padding: .2rem .35rem .2rem 1.3rem; font-size: .9em; }
+/* Sidebar sections: same column as "My files" (a gap the width of the chevron) */
+.cote .section { margin-top: 1.5rem; }
+.cote .section.bas { margin-top: 2.75rem; }
+.arbre .noeud { display: flex; align-items: center; gap: .15rem; border-radius: var(--rayon); }
+.arbre .noeud::before { content: ""; width: 1.1rem; flex: none; }
+.arbre .noeud:hover { background: var(--survol); }
+.cote > .arbre > li > details > summary .dossier, .cote > .arbre > li > .noeud .dossier { font-weight: 600; }
+.cote .arbre a.dossier[aria-current] { color: var(--accent); }
+/* Drag image (built by app.js): a label below right of the pointer, off the target; several items: a stack of sheets.
+   Kept off screen: the browser only takes its picture. The padding is the transparent gap around the pointer. */
+.glisse { position: fixed; top: -20rem; left: 0; padding: 14px 10px 10px 18px; pointer-events: none; }
+.glisse > span { display: flex; align-items: center; gap: .45rem; max-width: 18rem; padding: .3rem .7rem; font-size: .9em;
+  border: 1px solid var(--accent); border-radius: var(--rayon); background: var(--surface); color: var(--texte); }
+.glisse .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.glisse b { color: var(--accent); font-variant-numeric: tabular-nums; }
+.glisse.pile > span { box-shadow: 3px 3px 0 -1px var(--surface), 3px 3px 0 0 var(--accent), 6px 6px 0 -1px var(--surface), 6px 6px 0 0 var(--accent); }
+/* Drop target while dragging items: same mark as a folder row of the listing. */
+.cote .arbre a.dossier.cible { background: var(--accent-fond); box-shadow: inset 0 0 0 1px var(--accent); border-radius: var(--rayon); }
+@media (min-width: 60.01rem) { .barre nav .lien-cote { display: none; } }
+/* Phones only (search button, menu button, size and date under a name). */
+.tel-seul { display: none; }
+/* The main menu is a popover for phones; elsewhere it stays the plain row of links (the browser's popover box undone). */
+.barre nav[popover] { position: static; inset: auto; width: auto; height: auto; margin: 0; padding: 0; border: 0;
+  overflow: visible; color: inherit; background: none; }
+@media (prefers-reduced-motion: reduce) { .arbre summary::before { transition: none; } }
+
+/* Files page */
+.entete { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; justify-content: space-between; }
+.ariane { margin: .25rem 0; color: var(--doux); font-size: 1.15rem; }
+.ariane a { color: var(--doux); } .ariane [aria-current] { color: var(--texte); font-weight: 650; }
+.vues { display: inline-flex; border: 1px solid var(--bord); border-radius: var(--rayon); overflow: hidden; background: var(--surface); }
+.vues a { padding: .25rem .8rem; color: var(--doux); } .vues a[aria-current] { background: var(--accent-fond); color: var(--texte); font-weight: 600; }
+.outils { display: flex; flex-wrap: wrap; gap: .5rem; margin: .9rem 0; align-items: center; }
+.outils .espace { flex: 1; }
+.depot { border: 1.5px dashed var(--bord); border-radius: var(--rayon); padding: .6rem; text-align: center; color: var(--doux); margin: .5rem 0;
+  font-size: .9em; }
+.depot.actif { border-color: var(--accent); background: var(--accent-fond); color: var(--texte); }
+.envois { list-style: none; padding: 0; margin: .5rem 0; }
+.envois li { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .25rem .5rem; background: var(--surface);
+  border: 1px solid var(--bord); border-radius: var(--rayon); margin-bottom: .25rem; }
+.envois .nom { flex: 1 1 12rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.envois progress { width: 10rem; accent-color: var(--accent); }
+
+/* List: fixed columns, all rows aligned */
+.liste { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; background: var(--surface);
+  border: 1px solid var(--bord); border-radius: var(--rayon); box-shadow: var(--ombre); }
+.c-coche { width: 2.75rem; } .c-taille { width: 6.5rem; } .c-date { width: 11.5rem; } .c-tags { width: 9rem; } .c-actions { width: 12.5rem; }
+.liste th, .liste td { text-align: left; padding: 0 .6rem; height: 2.6rem; border-bottom: 1px solid var(--bord); vertical-align: middle;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liste tbody tr:last-child td { border-bottom: 0; }
+.liste th { font-weight: 600; font-size: .85em; color: var(--doux); height: 2.3rem; }
+.liste th a { color: inherit; }
+.liste th[aria-sort] { color: var(--texte); }
+.sens { margin-left: .3rem; }
+/* Checkbox column only (Favorites has none: its first column is the name, left-aligned) */
+.liste th:first-child:has(input), .liste td:first-child:has(input) { padding-right: 0; text-align: center; }
+.liste tbody tr:hover, .liste tbody tr:focus-within { background: var(--survol); }
+.liste tbody tr:has(input[name="item"]:checked) { background: var(--accent-fond); }
+.liste tr.cible td { background: var(--accent-fond); box-shadow: inset 0 0 0 1px var(--accent); }
+.liste .num { text-align: right; color: var(--doux); }
+.liste .date { color: var(--doux); }
+.cellule { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.cellule a { color: var(--texte); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nom-lieu { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.nom-ligne { display: flex; align-items: center; gap: .6rem; min-width: 0; }
+.cellule .lieu { color: var(--doux); font-size: .82em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liste tr .cellule .lieu a { color: var(--accent); font-weight: 400; }
+.liste tr[data-dir] .cellule a { font-weight: 550; }
+/* Buttons in a flex row: the spaces between them (wide in a monospace font) no longer count */
+.actions .boutons { display: flex; justify-content: flex-end; align-items: center; gap: .15rem; }
+.liste td.actions { text-overflow: clip; }
+/* No preview: an empty slot, so rename, move, details and delete stay in the same place on every row */
+.actions .sans-apercu { width: 2rem; height: 2rem; flex: none; }
+.liste tr.apercu td { background: var(--accent-fond); }
+/* Item reached from a search or a favorite (`?voir=…#vise`): marked, and scrolled to the middle of the screen. */
+.liste tr.vise td { background: var(--accent-fond); box-shadow: inset 0 1px 0 var(--accent), inset 0 -1px 0 var(--accent); }
+.carte-fichier.vise { outline: 2px solid var(--accent); }
+#vise { scroll-margin-block: 40vh; }
+.actions button, .actions .bouton-icone { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; padding: 0;
+  border: 0; background: transparent; color: var(--doux); border-radius: var(--rayon); vertical-align: middle; }
+.actions button:hover, .actions .bouton-icone:hover { background: var(--fond); color: var(--texte); }
+.actions .danger:hover { color: var(--alerte); }
+/* Discreet actions until the row is hovered or focused; always visible on touch screens. */
+@media (hover: hover) { .liste tbody tr:not(:hover):not(:focus-within) .actions > * { opacity: .25; } }
+.icone { width: 1.3rem; height: 1.3rem; flex: none; }
+.icone.grande { width: 3rem; height: 3rem; }
+.tag { display: inline-block; padding: 0 .5rem; border-radius: 1rem; font-size: .8em; background: var(--accent-fond); color: var(--accent); }
+.tags { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: .5rem; }
+.favori { color: #c99000; }
+/* Favorite toggle in a listing (list and grid): one click, no reload. */
+.etoile { border: 0; background: none; padding: 0 .15rem; line-height: 1; color: var(--doux); }
+.etoile[aria-pressed="true"] { color: #c99000; }
+.etoile:hover { color: var(--texte); }
+.vide { color: var(--doux); text-align: center; padding: 2.5rem 1rem; }
+.pages { display: flex; gap: 1rem; justify-content: center; margin: 1rem 0; color: var(--doux); }
+/* List footer: number of items, pages in the middle, page size on the right */
+.pied { display: grid; grid-template-columns: 1fr auto 1fr; gap: .5rem 1rem; align-items: center; margin: 1rem 0; color: var(--doux);
+  font-size: .92em; }
+.pied .pages { margin: 0; grid-column: 2; }
+.pied-compte { grid-column: 1; }
+.par-page { grid-column: 3; justify-self: end; display: flex; gap: .4rem; align-items: center; margin: 0; }
+.par-page select { padding: .2rem .4rem; }
+
+/* Account page: a single column, read top to bottom. Header (who, role, space), then the devices (the essentials, on a
+   surface), then the settings, separated by a rule. */
+.compte-tete, .compte { max-width: 52rem; }
+.compte-tete { display: flex; flex-wrap: wrap; gap: 1.25rem 3rem; align-items: end; justify-content: space-between;
+  padding-bottom: 1.25rem; margin-bottom: 1.75rem; border-bottom: 1px solid var(--bord); }
+.compte-tete h1 { margin: 0; font-size: 1.6rem; }
+.role { margin: .1rem 0 0; color: var(--doux); }
+.quota { flex: 0 1 22rem; min-width: min(16rem, 100%); }
+.quota meter { display: block; width: 100%; height: .55rem; }
+.quota p { margin: .45rem 0 0; color: var(--doux); font-size: .9em; }
+.quota strong { color: var(--texte); font-weight: 600; }
+.compte { display: grid; gap: 0; }
+.compte > section { margin: 0; padding: 2rem 0; border-top: 1px solid var(--bord); }
+.compte > section.appareils { padding: 1.25rem 1.5rem 1rem; border: 1px solid var(--bord); margin-bottom: 1rem; }
+.compte > section.appareils + section { border-top: 0; }
+.compte h2 { margin: 0; font-size: 1.05rem; }
+.aide { margin: .35rem 0 0; color: var(--doux); font-size: .9em; max-width: 60ch; }
+
+.appareils { background: var(--surface); border-radius: var(--rayon); box-shadow: var(--ombre); min-width: 0; }
+.appareils-tete { display: flex; gap: .6rem; align-items: center; }
+.compteur { min-width: 1.6rem; padding: 0 .45rem; border-radius: 1rem; background: var(--accent-fond); color: var(--accent);
+  font-size: .85em; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
+.appareils > .info, .appareils > .alerte, .secret { margin: 1rem 0 0; }
+.secret p { margin: 0; }
+.secret code { display: block; margin-top: .5rem; padding: .55rem .7rem; background: var(--surface); border: 1px solid var(--bord);
+  border-radius: var(--rayon); user-select: all; word-break: break-all; color: var(--texte); font-size: .95em; }
+.appareils .vide { margin: 1.25rem 0 .5rem; padding: 0; text-align: left; }
+.liste-appareils { list-style: none; margin: 1rem 0 0; padding: 0; }
+.liste-appareils li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .25rem 1rem; align-items: center;
+  padding: .9rem 0; border-top: 1px solid var(--bord); }
+.liste-appareils .ico { width: 1.5rem; height: 1.5rem; color: var(--doux); align-self: start; margin-top: .1rem; }
+.appareil strong { display: block; font-weight: 600; overflow-wrap: anywhere; }
+.appareil dl div { display: flex; gap: .35rem; } .appareil dd { margin: 0; color: var(--texte); font-variant-numeric: tabular-nums; }
+.liste-appareils form { margin: 0; }
+.liste-appareils .discret:hover { color: var(--alerte); border-color: var(--alerte); background: var(--alerte-fond); }
+.ajout { margin-top: .5rem; padding-top: .9rem; border-top: 1px solid var(--bord); }
+.ajout summary, .mdp summary { cursor: pointer; color: var(--accent); width: fit-content; }
+.ajout form { display: grid; gap: .35rem; margin-top: .8rem; max-width: 34rem; }
+.ajout label { font-weight: 600; font-size: .92em; }
+.ajout .ligne { display: flex; flex-wrap: wrap; gap: .5rem; } .ajout input { flex: 1 1 14rem; }
+/* Account: connect the mobile app with a QR code. The code stays dark on light in every theme (scanners need it). */
+.ajout-qr + .ajout { margin-top: .9rem; }
+.ajout-qr .aide { margin-top: .6rem; }
+.ajout-qr form { margin-top: .8rem; }
+.qr-carte { display: flex; flex-wrap: wrap; gap: 1rem 1.5rem; align-items: center; margin-top: 1.25rem; padding: 1rem;
+  border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--surface); }
+.qr-code { flex: none; width: 10rem; max-width: 100%; aspect-ratio: 1; padding: .5rem; background: #fff; border-radius: var(--rayon);
+  box-sizing: border-box; }
+.qr-code svg { display: block; width: 100%; height: 100%; }
+.qr-texte { flex: 1 1 16rem; min-width: 0; display: flex; flex-direction: column; gap: .6rem; }
+.qr-texte ol { margin: 0; padding-left: 1.2rem; display: flex; flex-direction: column; gap: .25rem; }
+.qr-texte .avertissement { margin: 0; }
+.qr-fini { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0; }
+.qr-texte form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+.secret + .qr-fini { margin-top: 1rem; }
+.cle-totp { word-spacing: .35em; overflow-wrap: anywhere; }
+.etat-actif { display: flex; gap: .45rem; align-items: center; margin: 1rem 0 0; }
+.etat-actif .ico { color: var(--info); }
+.codes-secours { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .4rem 1.5rem;
+  margin: .75rem 0 0; padding-left: 1.6rem; }
+.codes-secours code { display: inline; margin: 0; padding: 0; border: 0; background: none; font-size: 1.05em; }
+
+/* Fields: label above, same width, hint in small print below; side by side when there is room */
+.apparence, .mdp .champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15rem, 100%), 1fr)); gap: 1rem 1.5rem;
+  align-items: start; margin-top: 1rem; max-width: 36rem; }
+.modes legend { font-weight: 600; font-size: .92em; }
+.envoi { grid-column: 1 / -1; }
+.modes { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: .45rem 1.1rem; align-content: start; }
+.modes legend { padding: 0; margin-bottom: .45rem; }
+.modes label { display: inline-flex; gap: .4rem; align-items: center; cursor: pointer; }
+.modes:disabled { opacity: .5; } .modes:disabled label { cursor: default; }
+/* Each text size written at its own size. */
+.taille-grand { font-size: 1.125em; } .taille-tres-grand { font-size: 1.25em; }
+.mdp { margin-top: 1rem; } .mdp .champs { margin-top: .75rem; }
+
+/* Shared links: one compact row per link (what, how it is protected, usage, actions); the URL is copied, not shown */
+.liens { list-style: none; margin: 1rem 0 0; padding: 0; max-width: 60rem; border: 1px solid var(--bord); border-radius: var(--rayon);
+  background: var(--surface); }
+.liens > li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: .35rem 1rem; align-items: center;
+  padding: .8rem 1rem; border-top: 1px solid var(--bord); }
+.liens > li:first-child { border-top: 0; }
+.liens .icone { width: 1.6rem; height: 1.6rem; }
+.lien-quoi { display: grid; gap: .2rem; min-width: 0; }
+.lien-nom { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lien-dossier { color: var(--doux); font-weight: 400; }
+.lien-libelle { color: var(--doux); font-weight: 400; font-style: italic; }
+.note-lien { white-space: pre-line; overflow-wrap: anywhere; border-left: 3px solid var(--accent); padding: .4rem .7rem; background: var(--accent-fond); border-radius: 0 var(--rayon) var(--rayon) 0; }
+.puces { display: flex; flex-wrap: wrap; gap: .3rem; }
+.puce-l { display: inline-flex; align-items: center; gap: .25rem; padding: .05rem .5rem; border-radius: 1rem; font-size: .78em;
+  background: var(--survol); color: var(--doux); white-space: nowrap; }
+.puce-l.acces { background: var(--accent-fond); color: var(--accent); }
+.puce-l.expire { background: var(--alerte-fond); color: var(--alerte); }
+.lien-usage { display: grid; justify-items: end; gap: .1rem; font-size: .85em; color: var(--doux); white-space: nowrap; }
+.lien-usage strong { color: var(--texte); font-weight: 600; font-variant-numeric: tabular-nums; }
+.lien-actions { display: flex; gap: .4rem; align-items: center; }
+.lien-actions form { margin: 0; }
+.lien-actions button, .lien-actions .bouton { padding: .3rem .65rem; font-size: .88em; white-space: nowrap; }
+.lien-actions [data-copy].fait { border-color: var(--accent); color: var(--accent); }
+.lien-actions .discret:hover { color: var(--alerte); border-color: var(--alerte); background: var(--alerte-fond); }
+@media (max-width: 40rem) {
+  .liens > li { grid-template-columns: auto minmax(0, 1fr); }
+  .lien-usage { grid-column: 2; justify-items: start; grid-auto-flow: column; gap: 1rem; }
+  .lien-actions { grid-column: 2; flex-wrap: wrap; }
+}
+.lien-nom strong { font-weight: 600; }
+.puces .lien-historique { font-size: .82em; margin-left: .25rem; }
+/* The link itself, in a bubble (native popover, works without JavaScript); opened by itself if copying fails */
+.bulle-url { margin: 0; inset: auto; position-area: bottom span-left; position-try-fallbacks: flip-block; margin-top: .35rem;
+  width: min(30rem, calc(100vw - 2rem)); padding: .75rem; border: 1px solid var(--bord); border-radius: var(--rayon);
+  background: var(--surface); color: var(--texte); box-shadow: 0 6px 24px rgb(0 0 0 / 18%); gap: .35rem; }
+.bulle-url:popover-open { display: grid; }
+.bulle-url label { font-size: .82em; font-weight: 600; color: var(--doux); }
+.bulle-url input { width: 100%; font-family: ui-monospace, monospace; font-size: .88em; }
+@supports not (position-area: bottom) { .bulle-url { inset: 0; margin: auto; height: fit-content; } }
+/* History filtered on one link: a chip with its name, ✕ shows every link again */
+.filtre-actif { display: inline-flex; align-items: center; gap: .35rem; padding: .15rem .3rem .15rem .65rem; border-radius: 1rem;
+  background: var(--accent-fond); color: var(--accent); font-size: .88em; }
+.filtre-actif a { display: inline-grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 1rem; color: inherit; text-decoration: none; }
+.filtre-actif a:hover { background: var(--surface); }
+h1 .compteur { font-size: .6em; vertical-align: middle; }
+.appareil dl { display: flex; flex-wrap: wrap; gap: .1rem 1.5rem; margin: .4rem 0 0; color: var(--doux); font-size: .88em; }
+
+/* Stacked form (login, protected link) */
+.pile { display: grid; gap: 1rem; margin-top: 1rem; }
+.pile button { justify-self: start; }
+.connexion .logo { margin: 0 0 1rem; display: block; }
+.connexion h1 { margin-top: 0; }
+.connexion .sso { margin: 1rem 0 0; text-align: center; }
+.connexion .sso .bouton { display: inline-block; }
+
+/* Recent activity (root of "My files"): recently changed files on the left, public link events
+   on the right; collapsible. A single calm surface: the file list stays the page's main element. */
+.activite { margin: .9rem 0 1.1rem; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); }
+.activite > summary { display: flex; gap: .5rem; align-items: center; padding: .7rem 1rem; cursor: pointer; list-style: none; }
+.activite > summary::-webkit-details-marker { display: none; }
+.activite > summary::before { content: ""; width: .45rem; height: .45rem; border: solid var(--doux); border-width: 0 2px 2px 0;
+  transform: rotate(-45deg); transition: transform .15s; }
+.activite[open] > summary::before { transform: rotate(45deg); }
+.activite > summary h2 { margin: 0; font-size: 1rem; }
+.activite-grille { display: grid; grid-template-columns: minmax(0, 2fr) minmax(15rem, 1fr); gap: 1rem 2rem; padding: 0 1rem 1rem; }
+@media (max-width: 60rem) { .activite-grille { grid-template-columns: minmax(0, 1fr); } }
+.activite h3 { margin: 0 0 .6rem; font-size: .88rem; font-weight: 600; color: var(--doux); }
+.cartes-recentes { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem; }
+/* Narrow screens (tree hidden): a carousel swiped left and right; the next card peeks out to show there is more. */
+@media (max-width: 60rem) {
+  .cartes-recentes { grid-template-columns: none; grid-auto-flow: column; grid-auto-columns: minmax(9.5rem, 40%); overflow-x: auto;
+    overscroll-behavior-x: contain; padding-bottom: .4rem; scroll-snap-type: x mandatory; }
+  .cartes-recentes li { scroll-snap-align: start; }
+}
+/* One column that may shrink below the name's length: the name is then cut ("…") inside the card, never out of it. */
+.cartes-recentes li { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); gap: .15rem; padding: .55rem .6rem;
+  border: 1px solid var(--bord); border-radius: var(--rayon); min-width: 0; }
+.cartes-recentes li:hover { border-color: var(--doux); background: var(--survol); }
+/* The name's link covers the whole card; the folder's link sits above it (HTML allows no link inside a link). */
+.cartes-recentes a.nom { color: var(--texte); }
+.cartes-recentes a.nom::after { content: ""; position: absolute; inset: 0; border-radius: inherit; }
+.cartes-recentes a.nom:hover { text-decoration: none; }
+.cartes-recentes a.nom:focus-visible { outline: none; }
+.cartes-recentes li:has(a.nom:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.cartes-recentes .meta a { position: relative; z-index: 1; }
+.cartes-recentes .icone { width: 1.6rem; height: 1.6rem; margin-bottom: .25rem; }
+.cartes-recentes .nom { font-size: .9em; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cartes-recentes .meta { font-size: .8em; color: var(--doux); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Events: the second line wraps (a nowrap inline line ran out of the box on phones). */
+.liste-evenements .meta { font-size: .8em; color: var(--doux); }
+.liste-evenements { list-style: none; margin: 0; padding: 0; }
+.liste-evenements li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .1rem .6rem; padding: .45rem 0; border-top: 1px solid var(--bord); }
+.liste-evenements li:first-child { border-top: 0; padding-top: 0; }
+.liste-evenements .ico { margin-top: .2rem; color: var(--doux); }
+.liste-evenements .ico-upload { color: var(--accent); }
+.liste-evenements p { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.liste-evenements strong { font-weight: 550; }
+.evenements .vide-court { margin: 0; }
+.evenements > a { display: inline-block; margin-top: .5rem; font-size: .88em; }
+
+/* Public link history (Shared links page): grouped by day, filterable by link, paginated */
+.historique { margin-top: 2.5rem; max-width: 60rem; }
+.historique-tete { display: flex; flex-wrap: wrap; gap: .5rem 1.5rem; align-items: end; justify-content: space-between; }
+.historique-tete h2 { margin: 0; }
+.historique h3 { margin: 1.4rem 0 .3rem; font-size: .88rem; font-weight: 600; color: var(--doux); }
+.historique .liste-evenements li { grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; }
+.historique .liste-evenements li:first-child { border-top: 1px solid var(--bord); padding-top: .45rem; }
+.historique time { color: var(--doux); font-size: .88em; font-variant-numeric: tabular-nums; }
+.historique .pages { justify-content: flex-start; }
+
+/* Footer of every page */
+.pied-app { padding: 1rem 1.5rem 1.5rem; max-width: 132rem; margin: -4rem auto 0; color: var(--doux); font-size: .8em; }
+.pied-app .marque { width: 1rem; height: 1rem; vertical-align: -.2rem; margin-right: .35rem; }
+/* Guest pages (public links): one centered column, the name first, the footer at the bottom of the screen. */
+body.invite { min-height: 100dvh; display: flex; flex-direction: column; }
+body.invite main { flex: 1; width: 100%; max-width: 46rem; box-sizing: border-box; padding: clamp(1.5rem, 6vh, 4rem) 1rem 2rem; }
+.page-invite { display: flex; flex-direction: column; gap: 1.25rem; }
+.tete-invite { display: flex; flex-direction: column; align-items: center; gap: .35rem; text-align: center; }
+.tete-invite h1 { margin: 0; font-size: clamp(1.5rem, 1.1rem + 1.6vw, 2rem); text-wrap: balance; overflow-wrap: anywhere; }
+.tete-invite .ariane { font-size: .95rem; margin: 0; }
+.ico-invite { width: 2.4rem; height: 2.4rem; color: var(--doux); margin-bottom: .25rem; }
+.sous-titre { margin: 0; color: var(--doux); text-wrap: pretty; }
+.page-invite .note-lien { margin: 0 auto; max-width: 34rem; width: 100%; box-sizing: border-box; }
+.actions-invite { display: flex; justify-content: center; flex-wrap: wrap; gap: .5rem; margin: 0; }
+.actions-invite .bouton, .envoi-invite .bouton { display: inline-flex; align-items: center; gap: .45rem; }
+.page-invite .vide { text-align: center; color: var(--doux); }
+.ajout-invite { display: flex; flex-direction: column; gap: .5rem; text-align: center; padding-top: 1.25rem; border-top: 1px solid var(--bord); }
+.ajout-invite h2 { margin: 0; }
+.envoi-invite { display: flex; flex-direction: column; align-items: center; gap: .5rem; }
+.envoi-invite .depot { align-self: stretch; margin: 0; }
+.envoi-invite .envois { align-self: stretch; text-align: left; }
+.mot-de-passe-invite { width: 100%; max-width: 22rem; margin: 0 auto; }
+.pied-invite { text-align: center; padding: 1.5rem 1rem 2rem; color: var(--doux); font-size: .8em; }
+.pied-invite .marque { width: 1rem; height: 1rem; vertical-align: -.2rem; margin-right: .35rem; }
+
+/* Grid */
+.grille-fichiers { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: .75rem; }
+.carte-fichier { position: relative; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); overflow: hidden; }
+.carte-fichier:hover { border-color: var(--doux); }
+.carte-fichier:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.carte-fichier.cible { outline: 2px dashed var(--accent); }
+.carte-fichier > a { display: flex; flex-direction: column; gap: .4rem; padding: .5rem; color: var(--texte); }
+.carte-fichier > a:hover { text-decoration: none; }
+.carte-fichier .vignette { display: flex; align-items: center; justify-content: center; width: 100%; aspect-ratio: 1; object-fit: cover;
+  border-radius: 4px; background: var(--fond); }
+.carte-fichier .icone.grande { width: 3.5rem; height: 3.5rem; }
+.carte-fichier .nom { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: .9em; }
+.carte-fichier .meta { display: block; font-size: .8em; padding: 0 .5rem .45rem; }
+.carte-fichier .coche { position: absolute; top: .45rem; left: .45rem; display: flex; padding: .2rem; background: var(--surface); border-radius: 4px; }
+.carte-fichier .etoile { position: absolute; top: .45rem; right: .45rem; padding: .15rem .3rem; background: var(--surface); border-radius: 4px; }
+
+/* Selection dock: the interface's only emphasized element. Without JavaScript: a plain bar under the list. */
+.dock { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .75rem 0; padding: .5rem;
+  background: var(--surface); border: 1px solid var(--bord); border-radius: 10px; }
+.dock-compte { padding: 0 .6rem; font-weight: 650; }
+/* Its own width (max-content): positioned at `left: 50%`, a fixed box may otherwise use only half the screen, and the
+   last button wrapped alone. */
+html.avecjs .dock { position: fixed; z-index: 15; left: 50%; bottom: 1.25rem; margin: 0; transform: translate(-50%, 1rem); opacity: 0;
+  width: max-content; max-width: calc(100vw - 2rem);
+  visibility: hidden; transition: transform .15s, opacity .15s, visibility .15s;
+  background: var(--encre); color: var(--sur-encre); border-color: var(--encre); box-shadow: 0 10px 30px rgb(10 20 15 / 30%); }
+html.avecjs .dock.active { transform: translate(-50%, 0); opacity: 1; visibility: visible; }
+html.avecjs .dock button { background: transparent; border-color: transparent; color: inherit; }
+html.avecjs .dock button:hover { background: rgb(127 127 127 / 18%); }
+html.avecjs .dock .danger { color: var(--dock-alerte); }
+@media (prefers-reduced-motion: reduce) { html.avecjs .dock { transition: none; } }
+
+/* "Move to…" dialog (native popover: opens without JavaScript, Esc and an outside click close it) */
+.fenetre { width: min(30rem, calc(100vw - 2rem)); max-height: min(36rem, calc(100vh - 2rem)); padding: 1.25rem; margin: auto;
+  border: 1px solid var(--bord); border-radius: 12px; background: var(--surface); color: var(--texte); box-shadow: 0 20px 50px rgb(10 20 15 / 30%); }
+.fenetre:popover-open { display: flex; flex-direction: column; overflow: auto; }
+/* Sharing: more choices and fields than the other windows. */
+.fenetre-large { width: min(40rem, calc(100vw - 2rem)); max-height: min(48rem, calc(100vh - 2rem)); }
+.fenetre::backdrop { background: rgb(10 20 15 / 45%); }
+.fenetre h2 { margin: 0 0 .25rem; }
+.fenetre > .note { margin: .2rem 0 1rem; font-size: .92em; }
+/* "Move or copy to…": the folder the selection is in, once chosen, only offers "Duplicate" (moving there does nothing). */
+.dupliquer-ici { display: none; }
+.fenetre:has(input[data-ici]:checked) .dupliquer-ici { display: inline-flex; }
+.fenetre:has(input[data-ici]:checked) .copier-ici, .fenetre:has(input[data-ici]:checked) .deplacer-ici { display: none; }
+.fenetre .arbre { flex: 1; overflow: auto; margin: .5rem 0; padding: .4rem; border: 1px solid var(--bord); border-radius: var(--rayon); min-height: 10rem; }
+
+/* Preview panel */
+.panneau { position: fixed; top: 0; right: 0; bottom: 0; width: min(max(40rem, 40vw), 100%); z-index: 20; background: var(--surface);
+  border-left: 1px solid var(--bord); box-shadow: -8px 0 24px rgb(10 20 15 / 18%); padding: 1rem; overflow: auto; }
+.panneau-tete { display: flex; justify-content: space-between; align-items: center; margin-bottom: .5rem; }
+.panneau img, .panneau video { max-width: 100%; }
+/* In the panel, text scrolls with the panel itself (one scroll, driven by ↑ ↓) */
+.panneau pre.apercu { max-height: none; overflow: visible; }
+
+/* Details page: header, actions, preview, then the two blocks (tags, sharing) as popovers */
+.fiche-tete { display: flex; align-items: center; gap: .9rem; margin: .75rem 0 .25rem; }
+.fiche-tete h1 { margin: 0; overflow-wrap: anywhere; }
+.fiche-tete .meta { margin: .1rem 0 0; }
+.vide-court { color: var(--doux); font-style: italic; margin: 0 0 .75rem; }
+.puce { display: inline-flex; align-items: center; gap: .1rem; padding: 0 .2rem 0 .65rem; border-radius: 1rem; background: var(--accent-fond); color: var(--accent); }
+.puce button { border: 0; background: transparent; color: inherit; padding: .05rem .4rem; border-radius: 1rem; font-size: 1.05em; }
+.puce button:hover { background: rgb(127 127 127 / 18%); }
+.fenetre .tags { margin: 0 0 .9rem; }
+.ligne { display: flex; gap: .5rem; } .ligne input { flex: 1; min-width: 0; } #langue .ligne { align-items: end; max-width: 24rem; } #langue .champ { flex: 1; }
+.formulaire fieldset { border: 0; padding: 0; margin: 0 0 .75rem; }
+.formulaire legend { font-weight: 600; padding: 0; margin-bottom: .4rem; }
+.option { display: flex; gap: .65rem; align-items: flex-start; padding: .6rem .75rem; border: 1px solid var(--bord); border-radius: var(--rayon);
+  margin-bottom: .4rem; cursor: pointer; }
+.option input { margin-top: .2rem; }
+.option:has(input:checked) { border-color: var(--accent); background: var(--accent-fond); }
+.option span { display: flex; flex-direction: column; }
+.option small { color: var(--doux); font-size: .85em; }
+.options { margin: .25rem 0 1rem; }
+.options summary { cursor: pointer; color: var(--accent); }
+/* Sharing: the options that let visitors send files are folded away, set back, and marked by shape (not color alone). */
+.envoi-visiteurs { margin: .1rem 0 0; }
+.envoi-visiteurs > summary { cursor: pointer; color: var(--doux); font-size: .92em; padding: .2rem 0; }
+.envoi-visiteurs > summary:hover { color: var(--texte); }
+.envoi-visiteurs-corps { margin: .35rem 0 0 1.4rem; display: flex; flex-direction: column; }
+.avertissement { display: flex; gap: .5rem; align-items: flex-start; margin: 0 0 .5rem; font-size: .88em; color: var(--texte); }
+.avertissement .ico { color: var(--alerte); margin-top: .1rem; }
+.option.risque { border-style: dashed; }
+.option.risque:has(input:checked) { border-color: var(--alerte); background: var(--alerte-fond); }
+/* Drop only: the guest sees no file, nothing to hide. */
+form:has(input[name="perms"][value="drop"]:checked) .option-masquer { display: none; }
+/* Form field: label above, full-width field, hint in small print below (Account page, login, sharing) */
+.champs { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: .75rem; margin-top: .75rem; }
+.champ { display: flex; flex-direction: column; gap: .3rem; min-width: 0; }
+.champ > span, .champ > label { font-weight: 600; font-size: .92em; }
+.champ input, .champ select { width: 100%; }
+.champ small { color: var(--doux); font-size: .82em; }
+.formulaire p { margin: 0; }
+
+/* Details and previews */
+.galerie { display: flex; gap: .5rem; align-items: center; margin: .5rem 0; }
+.apercu { max-width: 100%; }
+img.apercu { max-height: 75vh; border-radius: 4px; }
+pre.apercu { white-space: pre-wrap; word-break: break-word; background: var(--surface); border: 1px solid var(--bord); padding: 1rem;
+  border-radius: var(--rayon); max-height: 70vh; overflow: auto; }
+.md { background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); padding: .5rem 1.25rem; max-width: 52rem; }
+iframe.pdf { width: 100%; height: 80vh; border: 1px solid var(--bord); border-radius: var(--rayon); }
+.meta, .note { color: var(--doux); }
+
+/* Messages, cards, forms */
+.alerte, .info { padding: .55rem .8rem; border-radius: var(--rayon); }
+.alerte { color: var(--alerte); background: var(--alerte-fond); }
+.info { color: var(--info); background: var(--info-fond); }
+.carte { max-width: 26rem; margin: 3rem auto; padding: 1.5rem; background: var(--surface); border: 1px solid var(--bord);
+  border-radius: 12px; box-shadow: var(--ombre); }
+.carte.large { max-width: 60rem; }
+.lien { width: 18rem; }
+section { margin-bottom: 1rem; }
+
+/* Dialog */
+.dialogue { border: 1px solid var(--bord); border-radius: 12px; padding: 1.25rem; min-width: min(24rem, 90vw); background: var(--surface); color: var(--texte); }
+.dialogue::backdrop { background: rgb(10 20 15 / 45%); }
+.dialogue input { width: 100%; }
+.choix { display: flex; justify-content: flex-end; gap: .5rem; margin: 0; }
+
+.invisible { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+html:not(.avecjs) .js { display: none !important; }
+/* `hidden` always wins: the browser's own rule loses to any `display` here (a hidden button stayed visible). */
+[hidden] { display: none !important; }
+html.avecjs .nojs { display: none !important; }
+
+@media (max-width: 60rem) {
+  .dispo { grid-template-columns: minmax(0, 1fr); }
+  .cote { display: none; }
+  .c-tags { width: 0; } .liste .tags-cell { padding: 0; }
+}
+/* A media query ignores the root's size: with larger text, the tree leaves earlier (60rem × 1.125, × 1.25). */
+@media (max-width: 67.5rem) {
+  [data-taille="grand"] .dispo { grid-template-columns: minmax(0, 1fr); }
+  [data-taille="grand"] .cote { display: none; }
+  [data-taille="grand"] .c-tags { width: 0; } [data-taille="grand"] .liste .tags-cell { padding: 0; }
+}
+@media (max-width: 75rem) {
+  [data-taille="tres-grand"] .dispo { grid-template-columns: minmax(0, 1fr); }
+  [data-taille="tres-grand"] .cote { display: none; }
+  [data-taille="tres-grand"] .c-tags { width: 0; } [data-taille="tres-grand"] .liste .tags-cell { padding: 0; }
+}
+@media (max-width: 40rem) {
+  /* Phones: 16 px text, the usual mobile floor (legible without zooming); no form field under 16 px, as iOS zooms the
+     page into any smaller field it focuses (the editor's coloured layer follows its field). The text size choice
+     still applies on top (rem). */
+  body { font-size: 1rem; }
+  input, select, textarea, .bulle-url input, .lien-cree-url input, .calque pre, .calque .editeur-texte { font-size: max(1rem, 1em); }
+  main { padding: .75rem .75rem 6rem; }
+  .barre { padding: .55rem .75rem; flex-wrap: nowrap; gap: .5rem; }
+  /* Pared down for phones: logo, search and menu buttons; touch targets of 44 px (2.75rem). */
+  .tel-seul { display: revert; }
+  .barre .recherche-barre { display: none; }
+  .barre .logo { margin-right: auto; }
+  .barre .bouton-icone { display: inline-grid; place-items: center; width: 2.75rem; height: 2.75rem; }
+  .barre nav:not(:popover-open) { display: none; }
+  .barre nav:popover-open { display: grid; position: fixed; inset: 3.6rem .75rem auto auto; min-width: 15rem; padding: .4rem;
+    border: 1px solid var(--bord); border-radius: 12px; background: var(--surface); box-shadow: 0 16px 40px rgb(10 20 15 / 25%); }
+  .barre nav:popover-open a, .barre nav:popover-open button { display: flex; align-items: center; min-height: 2.75rem; padding: 0 .75rem;
+    border-radius: var(--rayon); color: var(--texte); }
+  .barre nav:popover-open form button { width: 100%; justify-content: flex-start; border: 0; background: none; color: var(--alerte); }
+  .barre nav:popover-open .lien-cote { display: flex; }
+  /* Recent activity: only the carousel; shared links and the trash are in the menu. */
+  .activite .evenements, .activite .supprimes { display: none; }
+  /* Listing: size and date under the name, so the name gets the room; two 44 px actions. */
+  .c-taille { width: 0; } .liste .num, .liste th.num { padding: 0; overflow: hidden; }
+  .liste .nom .lieu { font-size: .82em; color: var(--doux); }
+  .liste td.actions button, .liste td.actions .bouton-icone { width: 2.75rem; height: 2.75rem; }
+  .c-actions { width: 6rem; }
+  .liste td:first-child input[type="checkbox"] { width: 1.3rem; height: 1.3rem; }
+  /* Details page: the actions as full-width buttons, two per row, the main one alone on top. */
+  .outils { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .outils > *, .outils form button { width: 100%; min-height: 2.75rem; justify-content: center; }
+  .outils .principal { grid-column: 1 / -1; }
+  .c-date { width: 0; } .liste .date { padding: 0; }
+  .c-taille { width: 5rem; } .c-actions { width: 4.75rem; } .liste td.actions { padding: 0 .3rem; }
+  /* On phones: rename and details on the row; move and delete through the selection (dock). */
+  .actions [data-action="preview"], .actions .sans-apercu, .actions [data-action="move"], .actions [data-action="delete"] { display: none; }
+  html.avecjs .dock { left: .5rem; right: .5rem; width: auto; max-width: none; transform: translateY(1rem); justify-content: center; }
+  html.avecjs .dock.active { transform: none; }
+  .outils .espace { display: none; }
+  .pied { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .pied .pages, .pied-compte, .par-page { grid-column: 1; justify-self: center; }
+}
+/* Search: filter chips (links that add or remove a filter), words found highlighted in the names */
+.filtres { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .9rem; margin: .6rem 0 .9rem; }
+.filtres-groupe { display: inline-flex; flex-wrap: wrap; gap: .3rem; }
+.filtre { padding: .15rem .65rem; border: 1px solid var(--bord); border-radius: 1rem; font-size: .88em; color: var(--texte); text-decoration: none; background: var(--surface); }
+.filtre:hover { border-color: var(--accent); }
+.filtre.actif { background: var(--accent-fond); border-color: var(--accent); color: var(--accent); }
+.filtre.actif::before { content: "✓ "; }
+.resultat mark { background: var(--accent-fond); color: inherit; border-radius: .2rem; padding: 0 .05rem; font-weight: 600; }
+/* Link just created: a card at the top of "Shared links" (link selectable, copy), and its row marked in the list */
+.lien-cree { max-width: 60rem; margin: 1rem 0; padding: 1rem 1.1rem; display: grid; gap: .6rem; border: 1px solid var(--accent);
+  border-radius: var(--rayon); background: var(--accent-fond); scroll-margin-top: 1rem; }
+.lien-cree h2 { margin: 0; color: var(--accent); }
+.lien-cree-quoi { display: flex; align-items: center; gap: .5rem; margin: 0; min-width: 0; }
+.lien-cree-quoi .icone { width: 1.4rem; height: 1.4rem; }
+.lien-cree-url { display: flex; gap: .5rem; flex-wrap: wrap; }
+.lien-cree-url input { flex: 1 1 18rem; min-width: 0; font-family: ui-monospace, monospace; font-size: .92em; background: var(--surface); }
+.lien-cree .note { margin: 0; }
+.liens > li.nouveau { background: var(--accent-fond); box-shadow: inset 3px 0 0 var(--accent); }
+.puce-l.neuf { background: var(--accent); color: var(--sur-accent); font-weight: 600; }
+/* Text editor: a plain textarea (works without JavaScript), monospace, the actions under it */
+.editeur { display: grid; gap: .75rem; }
+.editeur-texte { width: 100%; min-height: 55vh; resize: vertical; padding: .75rem .9rem; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .9rem; line-height: 1.5; tab-size: 4; background: var(--surface); color: var(--texte); border: 1px solid var(--bord); border-radius: var(--rayon); }
+.editeur-texte:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.editeur-barre { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .75rem; }
+.editeur-barre .note { margin: 0; }
+.conflit p { margin: .25rem 0; }
+.choix-conflit { display: flex; flex-wrap: wrap; gap: .5rem; }
+/* Editor colouring (editor.js): the <pre> behind the transparent textarea; both share font, padding, border and wrapping */
+.calque { position: relative; }
+.calque pre, .calque .editeur-texte { margin: 0; box-sizing: border-box; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .9rem; line-height: 1.5; tab-size: 4; padding: .75rem .9rem; border: 1px solid transparent; border-radius: var(--rayon);
+  letter-spacing: 0; scrollbar-gutter: stable; }
+.calque pre { position: absolute; inset: 0; overflow: hidden; pointer-events: none; background: var(--surface); color: var(--texte);
+  border-color: var(--bord); }
+.calque .editeur-texte { position: relative; background: transparent; color: transparent; caret-color: var(--texte); }
+.calque .editeur-texte::selection { background: color-mix(in srgb, var(--accent) 30%, transparent); color: transparent; }
+.calque.sans-couleur .editeur-texte { color: var(--texte); background: var(--surface); }
+.editeur-texte.replie, .calque:has(.replie) pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.editeur-texte.brut, .calque:has(.brut) pre { white-space: pre; overflow-wrap: normal; }
+.c-cle { color: var(--accent); }
+.c-str { color: light-dark(#8a5300, #e6b673); }
+.c-num { color: light-dark(#7a3fa0, #d3a6ea); }
+.c-mot { color: light-dark(#b02f5c, #f28fb0); font-weight: 600; }
+.c-var { color: light-dark(#17698c, #7cc8e8); }
+.c-com, .c-cit { color: var(--doux); font-style: italic; }
+.c-titre { color: var(--accent); font-weight: 700; }
+.c-gras { font-weight: 700; } .c-ital { font-style: italic; }
+.c-code { color: light-dark(#8a5300, #e6b673); background: var(--survol); border-radius: 3px; }
+.c-lien { color: var(--accent); text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 50%, transparent); }
+.c-liste { color: var(--accent); font-weight: 700; }
+/* Markdown preview next to the text on wide screens, under it otherwise */
+.editeur-zone { display: grid; gap: 1rem; min-width: 0; }
+.editeur-saisie { min-width: 0; }
+.editeur-apercu { min-width: 0; padding: .75rem 1rem; background: var(--surface); border: 1px solid var(--bord); border-radius: var(--rayon); overflow: auto; max-height: 75vh; }
+.editeur-apercu .meta { margin: 0 0 .5rem; }
+.editeur-apercu .apercu.md { border: 0; padding: 0; }
+@media (min-width: 70rem) { .avec-apercu { max-width: none; } .avec-apercu .editeur-zone { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+/* Copy the contents: a quiet button in the top right corner of the text or Markdown frame (JavaScript only) */
+.cadre-texte { position: relative; }
+.cadre-texte:has(> .md) { max-width: 52rem; }
+.cadre-texte > pre.apercu { padding-right: 3rem; }
+.copier-texte { position: absolute; top: .45rem; right: .55rem; z-index: 1; display: inline-grid; place-items: center; width: 2rem;
+  height: 2rem; padding: 0; border: 1px solid transparent; border-radius: var(--rayon); background: var(--surface); color: var(--doux);
+  opacity: .75; cursor: pointer; }
+.copier-texte:hover, .copier-texte:focus-visible { opacity: 1; color: var(--texte); border-color: var(--bord); }
+.copier-texte.fait { opacity: 1; color: var(--accent); border-color: var(--accent); }
+.copier-texte.fait .ico { --i: url(/static/icons/a-check.svg); }
+.copier-texte.rate { opacity: 1; color: var(--alerte); border-color: var(--alerte); }
+.ico-copy { --i: url(/static/icons/a-copy.svg); }
+/* "+ New" menu (native popover, opened next to its button): folder or text file */
+.menu-nouveau { margin: 0; inset: auto; position-area: bottom span-right; position-try-fallbacks: flip-block; margin-top: .3rem;
+  min-width: 12rem; padding: .3rem; border: 1px solid var(--bord); border-radius: var(--rayon); background: var(--surface);
+  color: var(--texte); box-shadow: 0 6px 24px rgb(0 0 0 / 18%); }
+.menu-nouveau:popover-open { display: grid; gap: .1rem; }
+.menu-nouveau button { display: flex; align-items: center; gap: .55rem; width: 100%; padding: .45rem .6rem; border: 0;
+  border-radius: calc(var(--rayon) - 2px); background: transparent; color: inherit; text-align: left; font: inherit; }
+.menu-nouveau button:hover, .menu-nouveau button:focus-visible { background: var(--survol); }
+.menu-nouveau .icone { width: 1.2rem; height: 1.2rem; }
+@supports not (position-area: bottom) { .menu-nouveau { inset: 0; margin: auto; height: fit-content; } }
+/* Small arrow of a button that opens a menu: down, up while the menu is open */
+.ico-chevron { --i: url(/static/icons/a-chevron.svg); width: .8rem; height: .8rem; color: var(--doux); transform: rotate(90deg);
+  transition: transform .12s; }
+button:has(+ :popover-open) .ico-chevron { transform: rotate(-90deg); }
+@media (prefers-reduced-motion: reduce) { .ico-chevron { transition: none; } }
+/* "Recent activity": recent files (cards) then recently deleted items (a short list, the trash restores them) */
+/* One column that may shrink: an `auto` column grew to the carousel's full length (every card side by side), so the
+   carousel never had to scroll and the cards ran off the screen. */
+.activite-fichiers { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-content: start; min-width: 0; }
+.liste-supprimes { list-style: none; margin: 0; padding: 0; display: grid; gap: .1rem; }
+.liste-supprimes li { display: grid; grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr); align-items: center; gap: .55rem;
+  padding: .3rem .1rem; }
+.liste-supprimes .icone { width: 1.2rem; height: 1.2rem; opacity: .7; }
+.liste-supprimes .nom { font-size: .9em; color: var(--doux); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--doux) 60%, transparent);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.liste-supprimes .meta { font-size: .8em; color: var(--doux); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.supprimes > a { display: inline-block; margin-top: .35rem; font-size: .88em; }
+/* Edit page: the name is a field in the header, as large as a title; a quiet border shows it can be changed */
+.nom-edition { display: grid; gap: .2rem; min-width: 0; flex: 1; max-width: 40rem; }
+.champ-nom { width: 100%; font-size: 1.4rem; font-weight: 650; padding: .15rem .4rem; margin-left: -.4rem; background: transparent;
+  color: var(--texte); border: 1px solid var(--bord); border-radius: var(--rayon); }
+.champ-nom:hover { border-color: var(--doux); }
+.champ-nom:focus { border-color: var(--accent); background: var(--surface); outline: none; box-shadow: 0 0 0 2px var(--accent-fond); }
+.champ-nom[aria-invalid="true"] { border-color: var(--alerte); }
+.nom-erreur, .nom-lien { margin: 0; font-size: .85em; }
+.nom-lien { display: flex; align-items: center; gap: .35rem; }

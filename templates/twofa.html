@@ -1,0 +1,39 @@
+<section id="double" aria-labelledby="t-double">
+  <h2 id="t-double">{{ lang.t("Two-step verification") }}</h2>
+  <p class="aide">{{ lang.t("After the password, a code from an app on your phone is asked at each sign-in, and to connect a new device. Devices already connected stay connected.") }}</p>
+  {% if !twofa.msg.is_empty() %}<p class="{% if twofa.error %}alerte{% else %}info{% endif %}" role="{% if twofa.error %}alert{% else %}status{% endif %}">{{ twofa.msg }}</p>{% endif %}
+  {% if twofa.state == "off" %}
+  <form method="post" action="/web/account/2fa/start#double" class="pile">
+    <input type="hidden" name="csrf" value="{{ twofa.csrf }}">
+    <button type="submit">{{ lang.t("Turn on two-step verification") }}</button>
+  </form>
+  {% else if twofa.state == "setup" %}
+  {% include "twofa-qr.html" %}
+  {% else %}
+  <p class="etat-actif"><span class="ico ico-check" aria-hidden="true"></span> {{ lang.t("On.") }} {{ twofa.left }} {{ lang.t("recovery codes left.") }}</p>
+  {% if !twofa.recovery.is_empty() %}
+  <div class="info secret" role="status">
+    <p>{{ lang.t("Keep these recovery codes somewhere safe (printed, password manager): each one signs you in once without your phone. They will not be shown again.") }}</p>
+    <ol class="codes-secours">{% for c in twofa.recovery %}<li><code>{{ c }}</code></li>{% endfor %}</ol>
+  </div>
+  {% endif %}
+  <details class="mdp">
+    <summary>{{ lang.t("New recovery codes or turn off") }}</summary>
+    <form method="post" action="/web/account/2fa#double" class="champs">
+      <input type="hidden" name="csrf" value="{{ twofa.csrf }}">
+      <div class="champ"><label for="tf-pw">{{ lang.t("Password") }}</label>
+        <input id="tf-pw" name="password" type="password" autocomplete="current-password" required></div>
+      <div class="champ"><label for="tf-code">{{ lang.t("Code from the app") }}</label>
+        <input id="tf-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      <div class="envoi">
+        <button type="submit" name="op" value="codes">{{ lang.t("New recovery codes") }}</button>
+        {% if twofa.required %}
+        <p class="aide">{{ lang.t("Required for this space by the administrator: it cannot be turned off.") }}</p>
+        {% else %}
+        <button type="submit" name="op" value="off" class="discret">{{ lang.t("Turn off") }}</button>
+        {% endif %}
+      </div>
+    </form>
+  </details>
+  {% endif %}
+</section>

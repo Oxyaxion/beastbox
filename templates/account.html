@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ lang.t("Account") }} — Beastbox{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<header class="compte-tete">
+  <div>
+    <h1>{{ nav.user }}</h1>
+    <p class="role">{% if admin %}{{ lang.t("Administrator") }}{% else %}{{ lang.t("User") }}{% endif %}</p>
+  </div>
+  <div class="quota">
+    <meter min="0" max="{{ total_bytes }}" value="{{ used_bytes }}" low="{{ total_bytes * 7 / 10 }}" high="{{ total_bytes * 9 / 10 }}" optimum="0" aria-label="{{ lang.t("Used space") }}">{{ used }}</meter>
+    <p><strong>{{ used }}</strong> {{ lang.t("used out of") }} {{ total }}, {{ free }} {{ lang.t("free. The trash counts towards used space.") }}</p>
+  </div>
+</header>
+
+<div class="compte">
+  <section class="appareils" id="appareils" aria-labelledby="t-appareils">
+    <div class="appareils-tete">
+      <h2 id="t-appareils">{{ lang.t("Connected devices") }}</h2>
+      <span class="compteur">{{ tokens.len() }}</span>
+    </div>
+    <p class="aide">{{ lang.t("Each device has its own app password. Revoking one disconnects only that device; it will have to reconnect.") }}</p>
+    {% if !token_msg.is_empty() %}<p class="{% if token_error %}alerte{% else %}info{% endif %}" role="{% if token_error %}alert{% else %}status{% endif %}">{{ token_msg }}</p>{% endif %}
+    {% if !secret.is_empty() %}
+    <div class="info secret" role="status">
+      <p>{{ lang.t("Copy this password into your software now. It will not be shown again.") }}</p>
+      <code>{{ secret }}</code>
+    </div>
+    {% endif %}
+    {% if tokens.is_empty() %}
+    <p class="vide">{{ lang.t("No connected device. Open the Nextcloud client on your computer or phone and connect to this server.") }}</p>
+    {% else %}
+    <ul class="liste-appareils">
+      {% for t in tokens %}
+      <li>
+        <span class="ico ico-{{ t.kind }}" aria-hidden="true"></span>
+        <div class="appareil">
+          <strong>{{ t.label }}</strong>
+          <dl>
+            <div><dt>{{ lang.t("Last use") }}</dt><dd>{{ t.used }}</dd></div>
+            <div><dt>{{ lang.t("Connected on") }}</dt><dd>{{ t.created }}</dd></div>
+          </dl>
+        </div>
+        <form method="post" action="/web/account/tokens/revoke">
+          <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="id" value="{{ t.id }}">
+          <button type="submit" class="discret" aria-label="{{ lang.t("Revoke") }} {{ t.label }}">{{ lang.t("Revoke") }}</button>
+        </form>
+      </li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+    <details class="ajout ajout-qr"{% if !qr.is_empty() %} open{% endif %}>
+      <summary>{{ lang.t("Connect the mobile app (QR code)") }}</summary>
+      {% if qr.is_empty() %}
+      <p class="aide">{{ lang.t("In the Nextcloud app on the phone, on the login screen, choose “Scan QR code”: the phone connects without typing a password.") }}</p>
+      <form method="post" action="/web/account/qr">
+        <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+        <div class="ligne"><button type="submit">{{ lang.t("Show the QR code") }}</button></div>
+      </form>
+      {% else %}
+      <div class="qr-carte" role="status">
+        <div class="qr-code">{{ qr|safe }}</div>
+        <div class="qr-texte">
+          <ol>
+            <li>{{ lang.t("Open the Nextcloud app on the phone.") }}</li>
+            <li>{{ lang.t("On the login screen, choose “Scan QR code”.") }}</li>
+            <li>{{ lang.t("Aim at this code: the phone connects and shows up in the list above.") }}</li>
+          </ol>
+          <p class="avertissement"><span class="ico ico-warn" aria-hidden="true"></span><span>{{ lang.t("This code gives access to your files: show it to nobody. It stops working after 10 minutes if unused, and will not be shown again.") }}</span></p>
+          <p class="qr-fini"><a class="bouton" href="/web/account#appareils">{{ lang.t("Done") }}</a></p>
+        </div>
+      </div>
+      {% endif %}
+    </details>
+    <details class="ajout"{% if !secret.is_empty() %} open{% endif %}>
+      <summary>{{ lang.t("Add another software (rclone, WebDAV)") }}</summary>
+      <form method="post" action="/web/account/tokens">
+        <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+        <label for="label">{{ lang.t("Software name") }}</label>
+        <div class="ligne"><input id="label" name="label" maxlength="64" required placeholder="{{ lang.t("rclone on the NAS") }}"><button type="submit">{{ lang.t("Create the password") }}</button></div>
+      </form>
+    </details>
+  </section>
+
+    <section id="langue" aria-labelledby="t-langue">
+      <h2 id="t-langue">{{ lang.t("Language") }}</h2>
+      <p class="aide">{{ lang.t("Language of the interface. Taken from the browser until you choose one.") }}</p>
+      <form method="post" action="/web/account/language#langue" class="ligne">
+        <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+        <label class="champ" for="lang">{{ lang.t("Language") }}
+          <select id="lang" name="lang">
+            <option value="en"{% if lang.code() == "en" %} selected{% endif %}>English</option>
+            <option value="fr"{% if lang.code() == "fr" %} selected{% endif %}>Français</option>
+          </select></label>
+        <button type="submit">{{ lang.t("Save") }}</button>
+      </form>
+    </section>
+
+    <section id="apparence" aria-labelledby="t-apparence">
+      <h2 id="t-apparence">{{ lang.t("Appearance") }}</h2>
+      <p class="nojs aide">{{ lang.t("Choosing a theme and a mode requires JavaScript.") }}</p>
+      <div class="js apparence">
+        <div class="champ"><label for="theme">{{ lang.t("Theme") }}</label>
+        <select id="theme" data-themes>
+          <option value="blanc">{{ lang.t("White (always light)") }}</option>
+          <option value="vert">{{ lang.t("Green") }}</option>
+          <option value="nord">Nord</option>
+          <option value="catppuccin">Catppuccin</option>
+          <option value="gruvbox">Gruvbox</option>
+          <option value="graphite">{{ lang.t("Graphite (always dark)") }}</option>
+        </select></div>
+        <fieldset class="modes" data-modes>
+          <legend>{{ lang.t("Mode") }}</legend>
+          <label><input type="radio" name="mode" value="clair" checked> {{ lang.t("Light") }}</label>
+          <label><input type="radio" name="mode" value="sombre"> {{ lang.t("Dark") }}</label>
+          <label><input type="radio" name="mode" value="systeme"> {{ lang.t("Follow the system") }}</label>
+        </fieldset>
+        <fieldset class="modes" data-tailles>
+          <legend>{{ lang.t("Text size") }}</legend>
+          <label><input type="radio" name="taille" value="normal" checked> {{ lang.t("Normal") }}</label>
+          <label class="taille-grand"><input type="radio" name="taille" value="grand"> {{ lang.t("Large") }}</label>
+          <label class="taille-tres-grand"><input type="radio" name="taille" value="tres-grand"> {{ lang.t("Larger") }}</label>
+        </fieldset>
+      </div>
+      <p class="aide js"><span data-mode-fixe hidden>{{ lang.t("This theme has a fixed mode. ") }}</span>{{ lang.t("Remembered by this browser.") }}</p>
+    </section>
+
+    <section id="mot-de-passe" aria-labelledby="t-mdp">
+      <h2 id="t-mdp">{{ lang.t("Password") }}</h2>
+      <p class="aide">{{ lang.t("Used for the web interface and to connect new devices. Devices already connected stay connected.") }}</p>
+      {% if !pw_msg.is_empty() %}<p class="{% if pw_error %}alerte{% else %}info{% endif %}" role="{% if pw_error %}alert{% else %}status{% endif %}">{{ pw_msg }}</p>{% endif %}
+      <details class="mdp"{% if pw_error %} open{% endif %}>
+        <summary>{{ lang.t("Change the password") }}</summary>
+        <form method="post" action="/web/account/password#mot-de-passe" class="champs">
+          <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+          <div class="champ"><label for="current">{{ lang.t("Current password") }}</label>
+            <input id="current" name="current" type="password" autocomplete="current-password" required></div>
+          <div class="champ"><label for="new">{{ lang.t("New password") }}</label>
+            <input id="new" name="new" type="password" autocomplete="new-password" minlength="{{ min_password }}" required aria-describedby="new-aide">
+            <small id="new-aide">{{ min_password }} {{ lang.t("characters at least") }}</small></div>
+          <div class="envoi"><button type="submit">{{ lang.t("Save the password") }}</button></div>
+        </form>
+      </details>
+    </section>
+    {% if twofa.state != "hidden" %}{% include "twofa.html" %}{% endif %}
+</div>
+{% endblock %}

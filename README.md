@@ -1,0 +1,54 @@
+![Beastbox — file storage for FreeBSD](docs/images/beast-box-files.jpeg)
+
+# Beastbox
+
+Self-hosted file server for **FreeBSD**, compatible with the official **Nextcloud** clients, with a web interface and share
+links. Built for a family or a small association that wants its files at home, on ZFS, without running a PHP stack.
+
+**[Test report](https://aumont.fr/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
+rules.
+
+## Why
+One order of priorities decides every choice: **1. never lose a file, 2. security, 3. performance and memory, 4. features**.
+When in doubt, a feature is not added. The full rationale: [specification](docs/dev/beastbox-plan.md).
+
+## What it does
+- **Sync with the official clients** — tested for real: desktop client on **Linux** and **Windows**, **Android** app,
+  `rclone`. Two-way sync, large files uploaded in chunks, search, favorites, tags, share links. iOS not tested.
+- **Web interface** — browse, upload, search, trash, share links; server-rendered, framework-free (55 KB of JS and CSS,
+  15 KB compressed).
+- **Multi-tenant** — one domain per tenant, several families or associations on the same server.
+
+## Strengths
+- **Your files stay files** — one ZFS dataset per user (quota = their space); identity, tags and favorites live in extended
+  attributes, not in a database. Backed up with snapshots and restic.
+- **No silent loss** — atomic writes (tested with a real `kill -9`), every delete goes through the trash, a conflicting
+  write is refused rather than overwritten; backup and total loss tested for real.
+- **Security** — tenants isolated on every SQL query and every route, no access outside the dataset (the kernel refuses `..`
+  and links, Capsicum), strict CSP, CSRF, argon2id, per-device app passwords, rate limiting, fuzzed parsers, never root.
+- **Small and fast** — a single Rust binary with embedded SQLite, nothing alongside (no PHP, no external database, no cache);
+  6 MB of memory at rest, 34 MB under load; 1,000 files listed in 8 ms; search in a few ms over 100,000 files; nothing runs
+  when idle.
+- **FreeBSD native** — jails, `rc.d`, `pf`, no portability layer; `unsafe` forbidden outside the filesystem module;
+  dependencies justified one by one.
+- **Tested paranoidly** — unit, end-to-end, property, fuzz and mutation testing on every release, published in the
+  [test report](https://aumont.fr/beastbox/).
+
+## Documentation
+- **Use**: [install](docs/admin/installation.md) · [upgrade](docs/admin/upgrade.md) ·
+  [back up and restore](docs/admin/backup.md) · [release notes](CHANGELOG.md) · [test report](https://aumont.fr/beastbox/)
+- **Develop**: [specification](docs/dev/beastbox-plan.md) · [testing](docs/dev/TESTING.md) ·
+  [attack surface](docs/dev/SURFACE.md) · [validation](docs/dev/VALIDATION.md) · [observed clients](docs/dev/CLIENTS.md) ·
+  [dependencies](docs/dev/DEPS.md)
+
+## Develop
+```sh
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo +nightly fuzz run <target>             # propfind, headers, search, proppatch, manifest, query
+cargo build --release --locked
+```
+Testing policy, local CI and release: `docs/dev/TESTING.md`. Working rules: `CLAUDE.md`.
+
+## Acknowledgements
+This software is based in part on the work of the Independent JPEG Group (through `jpeg-encoder`, client thumbnails).

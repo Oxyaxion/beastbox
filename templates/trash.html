@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% import "folder.html" as dossier %}
+{% block title %}{{ lang.t("Trash") }} — Beastbox{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+<div class="recherche">
+<div class="entete">
+  <h1>{{ lang.t("Trash") }}</h1>
+  {% if !items.is_empty() %}
+  <form method="post" action="/web/trash/empty" class="enligne" data-confirm-form="{{ lang.t("Empty the trash? The items will be permanently deleted.") }}">
+    <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+    <label class="nojs"><input type="checkbox" name="confirm" value="1"> {{ lang.t("I confirm") }}</label>
+    <button type="submit" class="danger"><span class="ico ico-trash"></span> {{ lang.t("Empty the trash") }}</button>
+  </form>
+  {% endif %}
+</div>
+<p class="note">{{ lang.t("Deleted items stay here") }} {% if days > 0 %}{{ days }} {{ lang.t("days") }}{% else %}{{ lang.t("until you empty the trash") }}{% endif %}, {{ lang.t("then are permanently deleted. They count towards your space.") }}</p>
+{% if !notice.is_empty() %}<p class="{% if notice_error %}alerte{% else %}info{% endif %}" role="{% if notice_error %}alert{% else %}status{% endif %}">{{ notice }}{% if !notice_url.is_empty() %} <a href="{{ notice_url }}">{{ lang.t("View") }}</a>{% endif %}</p>{% endif %}
+{% if truncated %}<p class="alerte">{{ lang.t("The trash holds too many items to show them all; “Empty the trash” deletes them all.") }}</p>{% endif %}
+{% if items.is_empty() %}<p class="vide">{{ lang.t("The trash is empty.") }}</p>
+{% else %}
+<ul class="resultats">
+{% for it in items %}
+  <li>
+    <img class="icone" src="/static/icons/{{ it.icon }}.svg" alt="">
+    <div class="resultat">
+      <span class="nom-corbeille">{{ it.name }}</span>
+      <span class="meta">{{ lang.t("from") }} {% call dossier::link(lang, it.folder_url, it.folder) %}{% endcall %}{% if !it.size.is_empty() %}, {{ it.size }}{% endif %}, {{ lang.t("deleted on") }} <time>{{ it.deleted }}</time></span>
+    </div>
+    <form method="post" action="/web/trash/restore" class="enligne">
+      <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="slot" value="{{ it.slot }}">
+      <button type="submit">{{ lang.t("Restore") }}</button>
+    </form>
+    <form method="post" action="/web/trash/purge" class="enligne" data-confirm-form="{{ lang.t("Permanently delete") }} « {{ it.name }} » ?">
+      <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="slot" value="{{ it.slot }}">
+      <label class="nojs"><input type="checkbox" name="confirm" value="1"> {{ lang.t("I confirm") }}</label>
+      <button type="submit" class="danger discret" aria-label="{{ lang.t("Permanently delete") }} {{ it.name }}" title="{{ lang.t("Delete permanently") }}"><span class="ico ico-trash"></span></button>
+    </form>
+  </li>
+{% endfor %}
+</ul>
+{% endif %}
+</div>
+{% include "dialog.html" %}
+</div>
+</div>
+{% endblock %}

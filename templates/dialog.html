@@ -1,0 +1,7 @@
+<dialog class="dialogue" data-dialog aria-labelledby="dialogue-titre">
+  <form method="dialog">
+    <p id="dialogue-titre" data-dialog-text></p>
+    <p><input data-dialog-input aria-labelledby="dialogue-titre" hidden></p>
+    <p class="choix"><button type="submit" value="non" formnovalidate>{{ lang.t("Cancel") }}</button> <button type="submit" value="oui" class="principal" data-dialog-ok>{{ lang.t("Confirm") }}</button></p>
+  </form>
+</dialog>

@@ -1,0 +1,1 @@
+<?xml ve.0" encoding="UTF-8"?><d:seardhrequest xmlns:d="DAV:" xmlns:oc="http://nextcloud.com/ns"><d:basicsearch><d:select><d:prop><d:displayname/><d:getcon><d:is-collection/><d:eq><d:prop><oc:favorite tersearch><d:select><d:prop><d:displayname/><d:getcon><d:is-collection/><d:eq<>

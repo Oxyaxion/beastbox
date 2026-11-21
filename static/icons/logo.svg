@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2.8 5.1 18.4 18.4" color="#c0392b">
+  <title>Beastbox</title>
+  <!-- The little daemon coming out of its box. Monochrome: the interface uses it as a CSS mask, so it
+       takes the text color; the `color` above is for the favicon only. -->
+  <g fill="currentColor">
+    <path d="M8.81 11.84 8.9 7 10.05 10.22Z"/>
+    <path d="M15.19 11.84 15.1 7 13.95 10.22Z"/>
+    <path fill-rule="evenodd" d="M8.6 13a3.4 3.4 0 0 1 6.8 0Z
+      M10.15 11.55a.6.6 0 1 0 1.2 0 .6.6 0 1 0-1.2 0Z
+      M12.65 11.55a.6.6 0 1 0 1.2 0 .6.6 0 1 0-1.2 0Z"/>
+  </g>
+  <path fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" d="M3.6 13h16.8l-1.6 7.8H5.2z"/>
+</svg>

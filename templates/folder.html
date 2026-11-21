@@ -1,0 +1,2 @@
+{# Link to the folder of an item: its own name only, cut at FOLDER_LABEL characters; the full path as a tooltip. #}
+{% macro link(lang, url, path) %}<a href="{{ url }}"{% if !path.is_empty() %} title="{{ path }}"{% endif %}>{% if path.is_empty() %}{{ lang.t("My files") }}{% else %}{{ crate::web::render::folder_label(path) }}{% endif %}</a>{% endmacro %}

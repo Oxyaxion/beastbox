@@ -1,0 +1,30 @@
+{% import "folder.html" as dossier %}<div class="activite-grille">
+  <div class="activite-fichiers">
+  {% if !recents.is_empty() %}
+  <section class="recents" aria-labelledby="t-recents">
+    <h3 id="t-recents">{{ lang.t("Recent files") }}</h3>
+    <ul class="cartes-recentes">
+      {% for r in recents %}<li><img class="icone" src="/static/icons/{{ r.icon }}.svg" alt=""><a class="nom" href="{{ r.url }}">{{ r.name }}</a><span class="meta">{% call dossier::link(lang, r.folder_url, r.folder) %}{% endcall %}, {{ r.ago }}</span></li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
+  {% if !deleted.is_empty() %}
+  <section class="supprimes" aria-labelledby="t-supprimes">
+    <h3 id="t-supprimes">{{ lang.t("Recently deleted") }}</h3>
+    <ul class="liste-supprimes">
+      {% for d in deleted %}<li><img class="icone" src="/static/icons/{{ d.icon }}.svg" alt=""><span class="nom">{{ d.name }}</span><span class="meta">{% call dossier::link(lang, d.folder_url, d.folder) %}{% endcall %}, {{ d.ago }}</span></li>{% endfor %}
+    </ul>
+    <a href="/web/trash">{{ lang.t("Restore from the trash") }}</a>
+  </section>
+  {% endif %}
+  </div>
+  {% if !events.is_empty() %}
+  <section class="evenements" aria-labelledby="t-evenements">
+    <h3 id="t-evenements">{{ lang.t("Your shared links") }}</h3>
+    <ul class="liste-evenements">
+      {% for e in events %}<li><span class="ico ico-{{ e.icon }}" aria-hidden="true"></span><p>{% if !e.name.is_empty() %}{% if e.url.is_empty() %}<strong>{{ e.name }}</strong>{% else %}<a href="{{ e.url }}"><strong>{{ e.name }}</strong></a>{% endif %} {% endif %}{{ e.what }}<br><span class="meta">{{ e.pre }}{% if e.link_url.is_empty() %}{{ e.link }}{% else %}<a href="{{ e.link_url }}">{{ e.link }}</a>{% endif %}{{ e.post }}, {{ e.time }}</span></p></li>{% endfor %}
+    </ul>
+    <a href="/web/shares#historique">{{ lang.t("Full link history") }}</a>
+  </section>
+  {% endif %}
+</div>

@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Beastbox{% endblock %}
+{% block body_attr %} class="invite"{% endblock %}
+{% block content %}
+<section class="carte">
+  <h1>{{ title }}</h1>
+  <p>{{ text }}</p>
+  {% if !back.is_empty() %}<p><a href="{{ back }}">{{ lang.t("Back") }}</a></p>{% endif %}
+</section>
+{% endblock %}
+{% block footer %}{% include "pied-public.html" %}{% endblock %}

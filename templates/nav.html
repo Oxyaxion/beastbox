@@ -1,0 +1,21 @@
+<header class="barre">
+  <a class="logo" href="/web/files/"><span class="marque" aria-hidden="true"></span>Beastbox</a>
+  <form method="get" action="/web/search" class="recherche-barre" role="search">
+    <input type="search" name="q" placeholder="{{ lang.t("Search") }}" aria-label="{{ lang.t("Search files") }}" maxlength="200">
+    {% if !nav.dir.is_empty() %}<input type="hidden" name="in" value="{{ nav.dir }}">{% endif %}
+  </form>
+  {# Phones: the search page and the menu behind two buttons (native popover, no script). #}
+  <a class="bouton-icone tel-seul" href="/web/search" title="{{ lang.t("Search") }}" aria-label="{{ lang.t("Search files") }}"><span class="ico ico-search"></span></a>
+  <button type="button" class="bouton-icone tel-seul" popovertarget="menu-principal" title="{{ lang.t("Menu") }}" aria-label="{{ lang.t("Menu") }}"><span class="ico ico-menu"></span></button>
+  <nav id="menu-principal" popover aria-label="{{ lang.t("Main navigation") }}">
+    <a href="/web/files/">{{ lang.t("Files") }}</a>
+    <a href="/web/favorites" class="lien-cote">{{ lang.t("Starred") }}</a>
+    <a href="/web/shares" class="lien-cote">{{ lang.t("Shared links") }}</a>
+    <a href="/web/trash" class="lien-cote">{{ lang.t("Trash") }}</a>
+    <a href="/web/account">{{ lang.t("Account") }} ({{ nav.user }})</a>
+    <form method="post" action="/logout" class="enligne">
+      <input type="hidden" name="csrf" value="{{ nav.csrf }}">
+      <button type="submit">{{ lang.t("Sign out") }}</button>
+    </form>
+  </nav>
+</header>

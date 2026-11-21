@@ -1,0 +1,1 @@
+<?xml versionersion="1.0" encoding="UTF-8"?><d:searchrequest xmlns:d="DAV:" xmlns:oc="http://nextcloud.com/ns"><d:basicsearcht><d:from><d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%fa&amp;c&#23;%3</d:literal></d:like></d:where>encoding="UTF-8"?><d:searchrequest xprop>pgdepth>in;c&#23;%3</d:lite:searchrequest>

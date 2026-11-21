@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% import "folder.html" as dossier %}
+{% block title %}{{ lang.t("Starred") }} — Beastbox{% endblock %}
+{% block meta %}<meta name="csrf" content="{{ nav.csrf }}">{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+<div class="entete"><nav aria-label="{{ lang.t("Breadcrumb") }}" class="ariane"><span aria-current="page">{{ lang.t("Starred") }}</span></nav></div>
+<p class="note">{{ lang.t("Click the star in a listing, or add it from the “Tags and sharing” page.") }}</p>
+{% if more %}<p class="meta">{{ lang.t("First") }} {{ rows.len() }} {{ lang.t("starred items") }}.</p>{% endif %}
+{% if rows.is_empty() %}<p class="vide">{{ lang.t("Nothing starred yet.") }}</p>
+{% else %}
+<table class="liste" data-contenu>
+  <caption class="invisible">{{ lang.t("Starred") }}</caption>
+  <colgroup><col><col class="c-taille"><col class="c-date"><col class="c-tags"><col class="c-actions"></colgroup>
+  <thead><tr>
+    {% for c in heads %}<th scope="col"{% if !c.class.is_empty() %} class="{{ c.class }}"{% endif %}{% if !c.aria.is_empty() %} aria-sort="{{ c.aria }}"{% endif %}><a href="{{ c.href }}">{{ c.label }}{% if c.aria == "ascending" %}<span class="sens" aria-hidden="true">↑</span>{% else if c.aria == "descending" %}<span class="sens" aria-hidden="true">↓</span>{% endif %}</a></th>
+    {% endfor %}
+    <th scope="col"><span class="invisible">{{ lang.t("Actions") }}</span></th>
+  </tr></thead>
+  <tbody>
+  {% for f in rows %}{% let r = f.row %}
+  <tr data-dav="{{ r.dav }}" data-name="{{ r.name }}" data-details="{{ r.details }}"{% if r.is_dir %} data-dir{% endif %}>
+    <td class="nom"><div class="cellule"><img class="icone" src="/static/icons/{{ r.icon }}.svg" alt=""><span class="nom-lieu"><span class="nom-ligne"><a href="{{ r.url }}" title="{{ r.name }}">{{ r.name }}</a><button type="button" class="etoile js" data-etoile aria-pressed="true" title="{{ lang.t("Star") }}" aria-label="{{ lang.t("Star") }} {{ r.name }}">★</button></span><span class="lieu">{{ lang.t("From:") }} {% call dossier::link(lang, f.folder_url, f.folder) %}{% endcall %}</span></span></div></td>
+    <td class="num">{{ r.size }}</td>
+    <td class="date"><time>{{ r.date }}</time></td>
+    <td class="tags-cell">{% for t in r.tags %}<a class="tag" href="/web/search?q=tag%3A{{ t|urlencode_strict }}">{{ t }}</a> {% endfor %}</td>
+    <td class="actions"><div class="boutons">
+      {% if r.previewable %}<button type="button" class="js" data-action="preview" title="{{ lang.t("Preview") }}" aria-label="{{ lang.t("Preview of") }} {{ r.name }}"><span class="ico ico-eye"></span></button>{% else %}<span class="sans-apercu js" aria-hidden="true"></span>{% endif %}
+      <button type="button" class="js" data-action="rename" title="{{ lang.t("Rename") }}" aria-label="{{ lang.t("Rename") }} {{ r.name }}"><span class="ico ico-edit"></span></button>
+      <a class="bouton-icone" href="{{ r.details }}" title="{{ lang.t("Details, tags and sharing") }}" aria-label="{{ lang.t("Details of") }} {{ r.name }}"><span class="ico ico-info"></span></a>
+      <button type="button" class="js danger" data-action="delete" title="{{ lang.t("Delete") }}" aria-label="{{ lang.t("Delete") }} {{ r.name }}"><span class="ico ico-trash"></span></button>
+    </div></td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+</div>
+</div>
+<aside class="panneau" data-panel hidden aria-label="{{ lang.t("Preview") }}">
+  <div class="panneau-tete"><a data-panel-open href="#">{{ lang.t("Open details") }}</a> <button type="button" data-panel-close aria-label="{{ lang.t("Close preview") }}">✕</button></div>
+  <div data-panel-body></div>
+</aside>
+{% include "dialog.html" %}
+{% endblock %}

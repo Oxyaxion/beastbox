@@ -1,0 +1,15 @@
+{% import "tree.html" as t %}
+<aside class="cote" aria-label="{{ lang.t("Navigation") }}">
+  <ul class="arbre" data-arbre>{% call t::tree(side.tree, false) %}{% endcall %}</ul>
+  <ul class="arbre section">
+    <li><details open><summary><a class="dossier" href="/web/favorites"{% if side.active == "favorites" %} aria-current="page"{% endif %}>{{ lang.t("Starred") }}</a></summary>
+      <ul>{% call t::tree(side.favs, false) %}{% endcall %}{% if side.favs.is_empty() %}<li class="note">{{ lang.t("No starred folder") }}</li>{% endif %}</ul>
+    </details></li>
+  </ul>
+  <ul class="arbre section">
+    <li><div class="noeud"><a class="dossier" href="/web/shares"{% if side.active == "shares" %} aria-current="page"{% endif %}>{{ lang.t("Shared links") }}</a></div></li>
+  </ul>
+  <ul class="arbre section bas">
+    <li><div class="noeud"><a class="dossier" href="/web/trash"{% if side.active == "trash" %} aria-current="page"{% endif %}>{{ lang.t("Trash") }}</a></div></li>
+  </ul>
+</aside>

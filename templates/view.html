@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — Beastbox{% endblock %}
+{% block meta %}{% if text.is_some() || markdown.is_some() %}<script src="/static/text.js" defer></script>{% endif %}{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+{% include "crumbs.html" %}
+<div class="fiche-tete">
+  <img class="icone grande" src="/static/icons/{{ icon }}.svg" alt="">
+  <div>
+    <h1>{{ name }}</h1>
+    <p class="meta">{% if is_dir %}{{ lang.t("Folder") }}{% else %}{{ size }}{% endif %}, {{ lang.t("modified on") }} <time>{{ date }}</time></p>
+  </div>
+</div>
+
+<div class="outils">
+  {% if is_dir %}<a class="bouton principal" href="{{ open }}">{{ lang.t("Open folder") }}</a>
+  <a class="bouton" href="{{ download }}"><span class="ico ico-download"></span> {{ lang.t("Download (ZIP)") }}</a>
+  {% else %}<a class="bouton principal" href="{{ download }}"><span class="ico ico-download"></span> {{ lang.t("Download") }}</a>{% endif %}
+  {% if !edit.is_empty() %}<a class="bouton" href="{{ edit }}"><span class="ico ico-edit"></span> {{ lang.t("Edit") }}</a>{% endif %}
+  <form method="post" action="/web/favorite" class="enligne">
+    <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="path" value="{{ path }}">
+    <input type="hidden" name="on" value="{% if favorite %}0{% else %}1{% endif %}">
+    <button type="submit" aria-pressed="{% if favorite %}true{% else %}false{% endif %}">{% if favorite %}<span class="favori">★</span> {{ lang.t("Star") }}{% else %}☆ {{ lang.t("Add a star") }}{% endif %}</button>
+  </form>
+  <button type="button" popovertarget="fiche-tags">{{ lang.t("Tags") }}</button>
+  <button type="button" popovertarget="fiche-partage">{{ lang.t("Share by link") }}</button>
+</div>
+
+{% if !prev.is_empty() || !next.is_empty() %}<nav class="galerie" aria-label="{{ lang.t("Gallery") }}" data-gallery>{% if !prev.is_empty() %}<a class="bouton" href="{{ prev }}" rel="prev" data-key="ArrowLeft">{{ lang.t("Previous image") }}</a>{% endif %}{% if !next.is_empty() %}<a class="bouton" href="{{ next }}" rel="next" data-key="ArrowRight">{{ lang.t("Next image") }}</a>{% endif %} <span class="note js">{{ lang.t("Keyboard: ← and →") }}</span></nav>{% endif %}
+<div id="apercu">
+{% if let Some(t) = text %}<div class="cadre-texte">{% include "copy.html" %}<pre class="apercu"{% if !syntax.is_empty() %} data-lang="{{ syntax }}"{% endif %}>{{ t }}</pre></div>{% endif %}
+{% if let Some(h) = markdown %}<div class="cadre-texte">{% include "copy.html" %}<article class="apercu md">{{ h|safe }}</article></div>{% endif %}
+{% if let Some(u) = image %}<p><img class="apercu" src="{{ u }}" alt="{{ lang.t("Preview of") }} {{ name }}"></p>{% endif %}
+{% if let Some(u) = pdf %}<iframe class="apercu pdf" src="{{ u }}" title="{{ lang.t("Preview of") }} {{ name }}"></iframe>{% endif %}
+{% if let Some(u) = audio %}<audio controls src="{{ u }}"></audio>{% endif %}
+{% if let Some(u) = video %}<video class="apercu" controls src="{{ u }}"></video>{% endif %}
+</div>
+
+<div id="fiche-tags" popover class="fenetre" aria-labelledby="t-tags">
+  <h2 id="t-tags">{{ lang.t("Tags") }}</h2>
+  <p class="note">{{ lang.t("Keywords to find this item again.") }}</p>
+  {% if tags.is_empty() %}<p class="vide-court">{{ lang.t("No tag yet.") }}</p>{% else %}
+  <ul class="tags">
+  {% for t in tags %}
+    <li class="puce"><a href="/web/search?q=tag%3A{{ t|urlencode_strict }}" title="{{ lang.t("All items with this tag") }}">{{ t }}</a>
+      <form method="post" action="/web/tags" class="enligne">
+        <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="path" value="{{ path }}">
+        <input type="hidden" name="op" value="remove"><input type="hidden" name="tag" value="{{ t }}">
+        <button type="submit" title="{{ lang.t("Remove") }}" aria-label="{{ lang.t("Remove the tag") }} {{ t }}">×</button>
+      </form></li>
+  {% endfor %}
+  </ul>{% endif %}
+  <form method="post" action="/web/tags" class="ligne">
+    <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="path" value="{{ path }}">
+    <input type="hidden" name="op" value="add">
+    <input name="tag" maxlength="32" required placeholder="{{ lang.t("New tag") }}" aria-label="{{ lang.t("New tag") }}">
+    <button type="submit">{{ lang.t("Add") }}</button>
+  </form>
+  <p class="choix"><button type="button" popovertarget="fiche-tags" popovertargetaction="hide">{{ lang.t("Close") }}</button></p>
+</div>
+
+<div id="fiche-partage" popover class="fenetre fenetre-large" aria-labelledby="t-lien">
+  <h2 id="t-lien">{{ lang.t("Share by link") }}</h2>
+  <p class="note">{{ lang.t("Anyone with the link can open it, without an account.") }} <a href="/web/shares">{{ lang.t("See my shared links") }}</a></p>
+  <form method="post" action="/web/shares" class="formulaire">
+    <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="path" value="{{ path }}">
+    <fieldset>
+      <legend>{{ lang.t("What the guest may do") }}</legend>
+      <label class="option"><input type="radio" name="perms" value="read" checked>
+        <span><strong>{{ lang.t("Browse and download") }}</strong><small>{% if is_dir %}{{ lang.t("They see the folder contents, without changing anything.") }}{% else %}{{ lang.t("They see and download the file, without changing it.") }}{% endif %}</small></span></label>
+      {% if is_dir %}<details class="envoi-visiteurs">
+        <summary>{{ lang.t("Let visitors send files…") }}</summary>
+        <div class="envoi-visiteurs-corps">
+          <p class="avertissement"><span class="ico ico-warn" aria-hidden="true"></span><span>{{ lang.t("Anyone with the link will be able to put files into this folder. Preferably add a password and an expiry date.") }}</span></p>
+          <label class="option risque"><input type="radio" name="perms" value="drop">
+            <span><strong>{{ lang.t("Drop files only") }}</strong><small>{{ lang.t("They send files without seeing the folder contents.") }}</small></span></label>
+          <label class="option risque"><input type="radio" name="perms" value="upload">
+            <span><strong>{{ lang.t("Browse, download and add files") }}</strong><small>{{ lang.t("They see the folder and can send files into it, without changing or deleting anything.") }}</small></span></label>
+        </div>
+      </details>{% endif %}
+    </fieldset>
+    <details class="options">
+      <summary>{{ lang.t("Options (password, expiry, limit, label, note)") }}</summary>
+      <div class="champs">
+        <label class="champ"><span>{{ lang.t("Password") }}</span><input name="password" type="password" autocomplete="new-password" minlength="8"><small>{{ lang.t("8 characters at least") }}</small></label>
+        <label class="champ"><span>{{ lang.t("Expires on") }}</span><input name="expires" type="date"><small>{{ lang.t("Included; empty = never") }}</small></label>
+        <label class="champ"><span>{{ lang.t("Downloads at most") }}</span><input name="max" type="number" min="1" max="100000" inputmode="numeric"><small>{{ lang.t("1 = single use; empty = no limit") }}</small></label>
+        <label class="champ"><span>{{ lang.t("Label") }}</span><input name="label" maxlength="100"><small>{{ lang.t("For you, to recognize the link") }}</small></label>
+        <label class="champ"><span>{{ lang.t("Note to the guest") }}</span><textarea name="note" maxlength="1000" rows="3"></textarea><small>{{ lang.t("Shown at the top of the link's page") }}</small></label>
+        <label class="option option-masquer"><input type="checkbox" name="hide" value="1"><span><strong>{{ lang.t("Hide the download") }}</strong><small>{{ lang.t("Images, PDF and text open in the browser; no download button nor archive. A determined guest can still save what they see.") }}</small></span></label>
+      </div>
+    </details>
+    <p><button type="submit" class="principal">{{ lang.t("Create the link") }}</button></p>
+  </form>
+  <p class="choix"><button type="button" popovertarget="fiche-partage" popovertargetaction="hide">{{ lang.t("Close") }}</button></p>
+</div>
+</div>
+</div>
+{% endblock %}

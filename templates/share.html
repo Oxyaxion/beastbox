@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} — {{ lang.t("shared link") }}{% endblock %}
+{% block meta %}{% if drop || upload %}<meta name="drop" content="{{ drop_url }}">{% endif %}{% endblock %}
+{% block body_attr %} class="invite"{% endblock %}
+{% block content %}
+<section class="page-invite">
+{% if password_form %}
+  <header class="tete-invite">
+    <span class="ico ico-key ico-invite" aria-hidden="true"></span>
+    <h1>{{ lang.t("Protected link") }}</h1>
+    <p class="sous-titre">{{ lang.t("The person who sent you this link protected it with a password.") }}</p>
+  </header>
+  {% if !message.is_empty() %}<p class="alerte" role="alert">{{ message }}</p>{% endif %}
+  <form method="post" action="{{ self_url }}" class="pile mot-de-passe-invite">
+    <div class="champ"><label for="password">{{ lang.t("Password") }}</label><input id="password" name="password" type="password" autocomplete="current-password" required autofocus></div>
+    <button type="submit" class="principal">{{ lang.t("Open") }}</button>
+  </form>
+{% else if drop %}
+  <header class="tete-invite">
+    <span class="ico ico-upload ico-invite" aria-hidden="true"></span>
+    <h1>{{ lang.t("Upload files") }}</h1>
+    <p class="sous-titre">{{ lang.t("The files you send are passed on to their recipient.") }}</p>
+  </header>
+  {% include "share-note.html" %}
+  {% include "share-upload.html" %}
+{% else if is_dir %}
+  <header class="tete-invite">
+    <h1>{{ name }}</h1>
+    {% if crumbs.len() > 1 %}{% include "crumbs.html" %}{% endif %}
+  </header>
+  {% include "share-note.html" %}
+  {% if !zip.is_empty() %}<p class="actions-invite"><a class="bouton" href="{{ zip }}"><span class="ico ico-download" aria-hidden="true"></span>{{ lang.t("Download all (ZIP)") }}</a></p>{% endif %}
+  {% if rows.is_empty() %}<p class="vide">{{ lang.t("This folder is empty.") }}</p>{% else %}
+  <table class="liste"><colgroup><col><col class="c-taille"><col class="c-date"></colgroup>
+  <thead><tr><th scope="col">{{ lang.t("Name") }}</th><th scope="col" class="num">{{ lang.t("Size") }}</th><th scope="col">{{ lang.t("Modified") }}</th></tr></thead><tbody>
+  {% for r in rows %}<tr><td class="nom"><div class="cellule"><img class="icone" src="/static/icons/{{ r.icon }}.svg" alt="">{% if r.url.is_empty() %}<span>{{ r.name }}</span>{% else %}<a href="{{ r.url }}">{{ r.name }}</a>{% endif %}</div></td><td class="num">{{ r.size }}</td><td class="date"><time>{{ r.date }}</time></td></tr>{% endfor %}
+  </tbody></table>
+  {% endif %}
+  {% if pages > 1 %}<nav class="pages" aria-label="{{ lang.t("Pages") }}">{% if !prev.is_empty() %}<a href="{{ prev }}" rel="prev">{{ lang.t("Previous page") }}</a> {% endif %}<span>{{ lang.t("Page") }} {{ page_no }} {{ lang.t("of") }} {{ pages }}</span>{% if !next.is_empty() %} <a href="{{ next }}" rel="next">{{ lang.t("Next page") }}</a>{% endif %}</nav>{% endif %}
+  {% if upload %}
+  <section class="ajout-invite" aria-labelledby="t-ajout">
+    <h2 id="t-ajout">{{ lang.t("Add files") }}</h2>
+    <p class="sous-titre">{{ lang.t("The files you send are added to this folder; nothing already there is replaced.") }}</p>
+    {% include "share-upload.html" %}
+  </section>
+  {% endif %}
+{% else %}
+  <header class="tete-invite">
+    <img class="icone ico-invite" src="/static/icons/{{ icon }}.svg" alt="">
+    <h1>{{ name }}</h1>
+    <p class="sous-titre">{{ size }}, {{ lang.t("modified on") }} <time>{{ date }}</time></p>
+  </header>
+  {% include "share-note.html" %}
+  {% if !download.is_empty() %}<p class="actions-invite"><a class="bouton principal" href="{{ download }}">{% if hidden %}{{ lang.t("Open in the browser") }}{% else %}<span class="ico ico-download" aria-hidden="true"></span>{{ lang.t("Download") }}{% endif %}</a></p>{% endif %}
+{% endif %}
+</section>
+{% endblock %}
+{% block footer %}{% include "pied-public.html" %}{% endblock %}

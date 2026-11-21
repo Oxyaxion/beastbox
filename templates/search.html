@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% import "folder.html" as dossier %}
+{% block title %}{% if q.is_empty() %}{{ lang.t("Search") }}{% else %}{{ q }} — {{ lang.t("Search") }}{% endif %} — Beastbox{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+<div class="recherche">
+<h1>{{ lang.t("Search") }}</h1>
+<form method="get" action="/web/search" class="ligne champ-recherche" role="search">
+  <input type="search" name="q" value="{{ q }}" maxlength="200" autofocus aria-label="{{ lang.t("Search") }}" placeholder="{{ lang.t("File name, or tag:invoice") }}" data-search>
+  {% if !scope.is_empty() %}<input type="hidden" name="in" value="{{ scope }}">{% endif %}
+  <button type="submit" class="principal">{{ lang.t("Search") }}</button>
+</form>
+
+<div data-resultats aria-live="polite">
+<div class="filtres" role="group" aria-label="{{ lang.t("Filters") }}">
+  {% if !scope.is_empty() %}<span class="filtre-actif">{{ lang.t("In") }} « {{ scope }} » <a href="{{ everywhere }}" title="{{ lang.t("Search everywhere") }}" aria-label="{{ lang.t("Search everywhere") }}">✕</a></span>{% endif %}
+  {% for g in chips %}<span class="filtres-groupe">{% for c in g %}<a class="filtre{% if c.on %} actif{% endif %}" href="{{ c.href }}"{% if c.on %} aria-current="true"{% endif %}>{{ c.label }}</a>{% endfor %}</span>{% endfor %}
+</div>
+{% if searched %}
+  {% if incomplete %}<p class="alerte">{{ lang.t("Your space is larger than the index: some files are missing.") }}</p>{% endif %}
+  {% if hits.is_empty() %}<p class="vide">{{ lang.t("No results for") }} « {{ q }} »{% if !scope.is_empty() %} {{ lang.t("in") }} « {{ scope }} ». <a href="{{ everywhere }}">{{ lang.t("Search everywhere") }}</a>{% endif %}.</p>
+  {% else %}
+  <p class="meta">{% if more %}{{ lang.t("First") }} {{ hits.len() }} {{ lang.t("results (refine the search)") }}{% else %}{{ hits.len() }} {{ lang.t("result") }}{% if hits.len() > 1 %}s{% endif %}{% endif %}</p>
+  <ul class="resultats">
+  {% for r in hits %}
+    <li>
+      <img class="icone" src="/static/icons/{{ r.icon }}.svg" alt="">
+      <div class="resultat">
+        <a href="{{ r.url }}">{% for p in r.parts %}{% if p.1 %}<mark>{{ p.0 }}</mark>{% else %}{{ p.0 }}{% endif %}{% endfor %}</a>{% if r.favorite %} <span class="favori" title="{{ lang.t("Star") }}">★</span>{% endif %}
+        <span class="meta">{{ lang.t("in") }} {% call dossier::link(lang, r.folder_url, r.folder) %}{% endcall %}{% if !r.size.is_empty() %}, {{ r.size }}{% endif %}, <time>{{ r.date }}</time></span>
+      </div>
+      <span>{% for t in r.tags %}<a class="tag" href="/web/search?q=tag%3A{{ t|urlencode_strict }}">{{ t }}</a> {% endfor %}</span>
+    </li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+{% else %}
+<p class="note">{{ lang.t("Every word must appear in the name, accents and case ignored. Filters:") }} <code>tag:invoice</code> <code>type:pdf</code> <code>is:fav</code> <code>after:2024-03</code> <code>before:2025</code>. {{ lang.t("Wildcards (whole name):") }} <code>*.md</code> <code>rapport-202?.pdf</code>.</p>
+{% endif %}
+</div>
+</div>
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,3 @@
+<nav aria-label="{{ lang.t("Breadcrumb") }}" class="ariane">
+  {% for c in crumbs %}{% if loop.last %}<span aria-current="page">{{ c.name }}</span>{% else %}<a href="{{ c.url }}">{{ c.name }}</a> <span aria-hidden="true">/</span> {% endif %}{% endfor %}
+</nav>

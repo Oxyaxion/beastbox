@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="{{ lang.code() }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>{% block title %}Beastbox{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+<link rel="icon" href="/static/icons/logo.svg" type="image/svg+xml">
+<script src="/static/theme.js"></script>
+{% block meta %}{% endblock %}
+<script src="/static/app.js" defer></script>
+</head>
+<body{% block body_attr %}{% endblock %}>
+{% block nav %}{% endblock %}
+<main id="principal">
+{% block content %}{% endblock %}
+</main>
+{% block footer %}<footer class="pied-app"><span class="marque" aria-hidden="true"></span>Powered by Beastbox {{ crate::web::VERSION }}</footer>{% endblock %}
+</body>
+</html>

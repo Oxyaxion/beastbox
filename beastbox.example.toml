@@ -1,0 +1,64 @@
+# Listen address: loopback by default. Never 0.0.0.0. In a jail, the jail's address.
+listen = "127.0.0.1:8080"
+# The only addresses whose connections are accepted: the reverse proxy (pf must restrict too).
+trusted_proxies = ["127.0.0.1"]
+state_dir = "/var/db/beastbox"
+log_level = "info"
+# Nextcloud version announced to clients: raise it if a recent client deems the server too old.
+nextcloud_version = "35.0.0"
+worker_threads = 2
+blocking_threads = 4
+# Trash: days before automatic permanent deletion (0 = never).
+trash_days = 30
+# Public link history (downloads, drops, refused passwords), in days; no guest IPs.
+share_history_days = 365
+# Minimum length of a password chosen by a user or the administrator (10 at least). Also refused: the account or
+# tenant name, repeated characters, sequences and keyboard rows, the current password.
+min_password = 12
+# Cleartext HTTP test bench only: cookies without Secure/__Host- (browsers refuse them outside HTTPS).
+# insecure_cookies = false
+
+# A tenant = one or more host names (ASCII/punycode, lowercase) and a ZFS dataset mounted on data_root.
+# Each user = a child dataset <data_root>/<user> created by the administrator (ZFS quota).
+[[tenant]]
+name = "alpha"
+hosts = ["files.alpha.example", "*.alpha.example"]
+data_root = "/mnt/data/beastbox-alpha"
+# Two-step verification (TOTP): "off", "optional" (default: each user chooses) or "required" (set up at next sign-in).
+two_factor = "required"
+# Single sign-on (optional): absent means password-only sign-in. Design: docs/dev/oidc-proposal.md.
+# Nothing to install: the back channel goes through the base system's Casper `system.net` service (ADR-6),
+# limited to the configured destinations; `serve` refuses to start when it cannot set or verify those limits.
+# [tenant.oidc]
+# The provider's issuer, byte for byte (compared with the `iss` claim of the id_token).
+# issuer = "https://auth.example/application/o/beastbox/"
+# client_id = "beastbox-alpha"
+# Client secret: absolute path to a file read once at startup (1-255 visible ASCII, no ':'), never printed.
+# client_secret_file = "/etc/beastbox-alpha-oidc.secret"
+# Who signs the second factor: "beastbox" (default, Beastbox asks its TOTP) or "provider" (the provider does
+# both; required_amr is then enforced on the amr claim of the id_token).
+# second_factor = "beastbox"
+# required_amr = ["mfa"]
+# Fixed TLS endpoint instead of DNS (provider on the LAN, split DNS): the certificate is still checked
+# against `issuer`'s host name.
+# connect_addr = "192.0.2.10:443"
+# Other hosts the token endpoint may live on (host or host:port, max 8), besides the issuer's own.
+# backchannel_hosts = ["token.auth.example"]
+# Root CA bundle of the provider (system bundle by default).
+# ca_file = "/etc/ssl/cert.pem"
+# Public base URL of redirect_uri when TLS does not end on port 443 (bench behind a port redirect, provider
+# on a non-standard port). Default: https://<first exact host of the tenant>. The host must be one of the
+# tenant's hosts; the base always comes from the configuration, never from a request's Host header (§4.1).
+# public_base_url = "https://files.alpha.example:8443"
+# Web sign-in: on a tenant with a provider, the Beastbox password form is GONE by default — the provider is
+# the only way in, and the account's own TOTP (when it has one) is asked after. Set this to true to keep a
+# local form for a break-glass account, remembering it is a second door.
+# password_login = false
+# Accounts sign in through a provider identity bound by the administrator only:
+#   beastbox user add --tenant alpha --oidc bob
+#   beastbox user oidc-link --tenant alpha bob --subject <sub given by the provider>
+
+[[tenant]]
+name = "beta"
+hosts = ["*.beta.example"]
+data_root = "/mnt/data/beastbox-beta"

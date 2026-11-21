@@ -1,0 +1,16 @@
+<div class="qr-carte">
+  <div class="qr-code">{{ twofa.qr|safe }}</div>
+  <div class="qr-texte">
+    <ol>
+      <li>{{ lang.t("Open an authenticator app on your phone (Aegis, FreeOTP, Google Authenticator…) and add an account.") }}</li>
+      <li>{{ lang.t("Scan this code, or type this key:") }} <code class="cle-totp">{{ twofa.secret }}</code></li>
+      <li>{{ lang.t("Enter the 6-digit code the app shows.") }}</li>
+    </ol>
+    <form method="post" action="{{ twofa.action }}" class="ligne">
+      <input type="hidden" name="csrf" value="{{ twofa.csrf }}">
+      <label class="champ" for="code-totp">{{ lang.t("Code") }}
+        <input id="code-totp" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
+      <button type="submit" class="principal">{{ lang.t("Confirm") }}</button>
+    </form>
+  </div>
+</div>

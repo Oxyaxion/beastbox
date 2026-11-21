@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% import "folder.html" as dossier %}
+{% block title %}{{ lang.t("Shared links") }} — Beastbox{% endblock %}
+{% block nav %}{% include "nav.html" %}{% endblock %}
+{% block content %}
+<div class="dispo">
+{% include "sidebar.html" %}
+<div class="contenu">
+<h1>{{ lang.t("Shared links") }}{% if !rows.is_empty() %} <span class="compteur">{{ rows.len() }}</span>{% endif %}</h1>
+<p class="note">{{ lang.t("Anyone with a link can open it without an account. Revoking cuts access immediately.") }}</p>
+{% if !message.is_empty() %}<p class="info" role="status">{{ message }}</p>{% endif %}
+{% for r in rows %}{% if r.fresh %}
+<section class="lien-cree" id="nouveau" aria-labelledby="t-nouveau">
+  <h2 id="t-nouveau">{{ lang.t("Link created") }}</h2>
+  <p class="lien-cree-quoi"><img class="icone" src="/static/icons/{{ r.icon }}.svg" alt=""><strong>{{ r.name }}</strong>{% if !r.folder.is_empty() %} <span class="lien-dossier">· {% call dossier::link(lang, r.folder_url, r.folder) %}{% endcall %}</span>{% endif %}</p>
+  <div class="lien-cree-url">
+    <input id="nouveau-url" readonly value="{{ r.url }}" aria-label="{{ lang.t("Public link of") }} {{ r.name }}">
+    <button type="button" class="js principal" data-copy="{{ r.url }}" autofocus>{{ lang.t("Copy link") }}</button>
+  </div>
+  <span class="puces">
+    <span class="puce-l acces">{{ r.perms }}</span>
+    {% if r.password %}<span class="puce-l"><span class="ico ico-key" aria-hidden="true"></span>{{ lang.t("Password") }}</span>{% endif %}
+    {% if !r.expiry.is_empty() %}<span class="puce-l">{{ r.expiry }}</span>{% endif %}
+    {% if !r.limit.is_empty() %}<span class="puce-l">{{ r.limit }} {{ lang.t("downloads at most") }}</span>{% endif %}
+  </span>
+  <p class="note">{{ lang.t("Send this link to the people concerned. It is also marked “New” in the list below.") }}{% if !r.item_url.is_empty() %} <a href="{{ r.item_url }}">{{ lang.t("Back to") }} {{ r.name }}</a>{% endif %}</p>
+</section>
+{% endif %}{% endfor %}
+{% if rows.is_empty() %}<p class="vide">{{ lang.t("No active links. Create one from the “Tags and sharing” page of a file or folder.") }}</p>{% else %}
+<ul class="liens">
+  {% for r in rows %}
+  <li{% if r.fresh %} class="nouveau"{% endif %}>
+    <img class="icone" src="/static/icons/{{ r.icon }}.svg" alt="">
+    <div class="lien-quoi">
+      <span class="lien-nom"><strong>{{ r.name }}</strong>{% if !r.folder.is_empty() %} <span class="lien-dossier">· {% call dossier::link(lang, r.folder_url, r.folder) %}{% endcall %}</span>{% endif %}{% if !r.label.is_empty() %} <span class="lien-libelle">“{{ r.label }}”</span>{% endif %}</span>
+      <span class="puces">
+        {% if r.fresh %}<span class="puce-l neuf">{{ lang.t("New") }}</span>{% endif %}
+        <span class="puce-l acces">{{ r.perms }}</span>
+        {% if r.hidden %}<span class="puce-l">{{ lang.t("view only") }}</span>{% endif %}
+        {% if r.password %}<span class="puce-l"><span class="ico ico-key" aria-hidden="true"></span>{{ lang.t("Password") }}</span>{% endif %}
+        {% if !r.expiry.is_empty() %}<span class="puce-l{% if r.expired %} expire{% endif %}">{{ r.expiry }}</span>{% endif %}
+        <a class="lien-historique" href="/web/shares?lien={{ r.id }}#historique">{{ lang.t("History") }}</a>
+      </span>
+    </div>
+    <div class="lien-usage"><span><strong>{{ r.downloads }}</strong> {{ lang.t("downloads") }}</span><span>{{ lang.t("Last access:") }} {{ r.last_access }}</span></div>
+    <div class="lien-actions">
+      <button type="button" class="js" data-copy="{{ r.url }}" data-url="url-{{ r.id }}">{{ lang.t("Copy link") }}</button>
+      <button type="button" class="discret" popovertarget="url-{{ r.id }}" title="{{ lang.t("Show the link") }}" aria-label="{{ lang.t("Show the link to") }} {{ r.name }}">URL</button>
+      <div id="url-{{ r.id }}" popover class="bulle-url"><label for="url-{{ r.id }}-t">{{ lang.t("Public link of") }} {{ r.name }}</label><input id="url-{{ r.id }}-t" readonly value="{{ r.url }}"></div>
+      <form method="post" action="/web/shares/revoke">
+        <input type="hidden" name="csrf" value="{{ nav.csrf }}"><input type="hidden" name="id" value="{{ r.id }}">
+        <button type="submit" class="discret" aria-label="{{ lang.t("Revoke the link to") }} {{ r.name }}">{{ lang.t("Revoke") }}</button></form>
+    </div>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+<section class="historique" id="historique" aria-labelledby="t-historique">
+  <div class="historique-tete">
+    <h2 id="t-historique">{{ lang.t("History") }}</h2>
+    {% if !hist.filter.is_empty() %}<span class="filtre-actif">{{ lang.t("Link:") }} <strong>{{ hist.filter }}</strong> <a href="/web/shares#historique" title="{{ lang.t("Show every link") }}" aria-label="{{ lang.t("Show every link") }}">✕</a></span>{% endif %}
+  </div>
+  <p class="note">{{ lang.t("Links created and revoked, downloads and drops by people who have a link, and refused passwords. Kept") }} {{ hist.keep_days }} {{ lang.t("days, even after the link is revoked.") }}</p>
+  {% if hist.days.is_empty() %}<p class="vide-court">{% if hist.lien.is_empty() %}{{ lang.t("Nothing yet.") }}{% else %}{{ lang.t("Nothing for this link.") }}{% endif %}</p>{% endif %}
+  {% for d in hist.days %}
+  <h3>{{ d.label }}</h3>
+  <ul class="liste-evenements">
+    {% for e in d.events %}<li><span class="ico ico-{{ e.icon }}" aria-hidden="true"></span><p>{% if !e.name.is_empty() %}{% if e.url.is_empty() %}<strong>{{ e.name }}</strong>{% else %}<a href="{{ e.url }}"><strong>{{ e.name }}</strong></a>{% endif %} {% endif %}{{ e.what }}<br><span class="meta">{{ e.pre }}{% if e.link_url.is_empty() %}{{ e.link }}{% else %}<a href="{{ e.link_url }}">{{ e.link }}</a>{% endif %}{{ e.post }}</span></p><time>{{ e.time }}</time></li>{% endfor %}
+  </ul>
+  {% endfor %}
+  {% if hist.pages > 1 %}<nav class="pages" aria-label="{{ lang.t("History pages") }}">{% if !hist.prev.is_empty() %}<a href="{{ hist.prev }}" rel="prev">{{ lang.t("Previous page") }}</a> {% endif %}<span>{{ lang.t("Page") }} {{ hist.page_no }} {{ lang.t("of") }} {{ hist.pages }}</span>{% if !hist.next.is_empty() %} <a href="{{ hist.next }}" rel="next">{{ lang.t("Next page") }}</a>{% endif %}</nav>{% endif %}
+</section>
+</div>
+</div>
+{% endblock %}

@@ -1,0 +1,93 @@
+[package]
+name = "beastbox-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tempfile = "3.27.0"
+
+[dependencies.beastbox]
+path = ".."
+features = ["fuzzing"]
+
+[[bin]]
+name = "propfind"
+path = "fuzz_targets/propfind.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "headers"
+path = "fuzz_targets/headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "search"
+path = "fuzz_targets/search.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "proppatch"
+path = "fuzz_targets/proppatch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "manifest"
+path = "fuzz_targets/manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "query"
+path = "fuzz_targets/query.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "thumb"
+path = "fuzz_targets/thumb.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http"
+path = "fuzz_targets/http.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "restore"
+path = "fuzz_targets/restore.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oidc_url"
+path = "fuzz_targets/oidc_url.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oidc_provider"
+path = "fuzz_targets/oidc_provider.rs"
+test = false
+doc = false
+bench = false

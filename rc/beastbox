@@ -1,0 +1,36 @@
+#!/bin/sh
+#
+# PROVIDE: beastbox
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+#
+# beastbox_enable (bool): YES to start at boot.
+# beastbox_runas (str)  : unprivileged user (default: beastbox).
+#                         Not "beastbox_user": rc.subr would take it for a su -m.
+# beastbox_config (str) : configuration file.
+
+. /etc/rc.subr
+
+name=beastbox
+rcvar=beastbox_enable
+load_rc_config $name
+
+: ${beastbox_enable:=NO}
+: ${beastbox_runas:=beastbox}
+: ${beastbox_config:=/usr/local/etc/beastbox.toml}
+: ${beastbox_logfile:=/var/log/beastbox/beastbox.log}
+
+pidfile=/var/run/beastbox/daemon.pid
+procname=/usr/sbin/daemon
+command=/usr/sbin/daemon
+# Supervised: restarted after 5 s if it exits; -H reopens the log on SIGHUP (newsyslog).
+command_args="-R 5 -H -P ${pidfile} -u ${beastbox_runas} -o ${beastbox_logfile} /usr/local/bin/beastbox -c ${beastbox_config} serve"
+start_precmd=beastbox_prestart
+
+beastbox_prestart()
+{
+	install -d -o ${beastbox_runas} -g ${beastbox_runas} -m 0700 /var/run/beastbox /var/db/beastbox
+	install -d -o ${beastbox_runas} -g ${beastbox_runas} -m 0750 $(dirname ${beastbox_logfile})
+}
+
+run_rc_command "$1"
