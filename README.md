@@ -25,7 +25,11 @@ When in doubt, a feature is not added. The full rationale: [specification](docs/
 - **No silent loss** — atomic writes (tested with a real `kill -9`), every delete goes through the trash, a conflicting
   write is refused rather than overwritten; backup and total loss tested for real.
 - **Security** — tenants isolated on every SQL query and every route, no access outside the dataset (the kernel refuses `..`
-  and links, Capsicum), strict CSP, CSRF, argon2id, per-device app passwords, rate limiting, fuzzed parsers, never root.
+  and links), strict CSP, CSRF, argon2id, per-device app passwords, rate limiting, fuzzed parsers, never root.
+- **Sandboxed by Capsicum** — once its folders, database and socket are open, the server enters FreeBSD's capability mode:
+  the kernel then refuses it any new path, outgoing connection or process. A flaw in the code stays inside what was
+  already open: no other file of the machine, no shell; the identity provider is reached only through a Casper channel
+  limited to the configured hosts.
 - **Small and fast** — a single Rust binary with embedded SQLite, nothing alongside (no PHP, no external database, no cache);
   6 MB of memory at rest, 34 MB under load; 1,000 files listed in 8 ms; search in a few ms over 100,000 files; nothing runs
   when idle.
