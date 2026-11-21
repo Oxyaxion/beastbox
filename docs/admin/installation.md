@@ -6,9 +6,10 @@ Single sign-on is optional and per tenant: see [Single sign-on](#single-sign-on-
 
 ```sh
 pw useradd beastbox -d /nonexistent -s /usr/sbin/nologin
-cargo build --release --locked
-install -m 0555 target/release/beastbox /usr/local/bin/
-install -m 0555 rc/beastbox /usr/local/etc/rc.d/
+# Built binary (FreeBSD 15 amd64), from the release page: the archive and its .sha256
+sha256sum -c beastbox-X.Y.Z-freebsd15-amd64.tar.xz.sha256 && tar -xf beastbox-X.Y.Z-freebsd15-amd64.tar.xz
+cd beastbox-X.Y.Z-freebsd15-amd64 && install -m 0555 beastbox /usr/local/bin/ && install -m 0555 rc.d/beastbox /usr/local/etc/rc.d/
+# Or from the sources: cargo build --release --locked, then target/release/beastbox and rc/beastbox
 
 # One dataset per tenant, one child per user (quota = their space)
 zfs create -o mountpoint=none -o canmount=off -o xattr=sa -o compression=lz4 -o atime=off -o exec=off -o setuid=off zroot/beastbox
