@@ -26,6 +26,7 @@ chown -R beastbox:beastbox /mnt/data/beastbox-alpha && chmod 0700 /mnt/data/beas
 install -m 0640 -g beastbox beastbox.example.toml /usr/local/etc/beastbox.toml   # adapt it (commented)
 su -m beastbox -c 'beastbox check-config'
 su -m beastbox -c 'beastbox user add --tenant alpha alice --admin'               # password shown once
+su -m beastbox -c 'beastbox rescan --tenant alpha --user alice'                  # gives the new space's root its identity
 sysrc beastbox_enable=YES && service beastbox start                              # log: /var/log/beastbox/
 ```
 
@@ -90,7 +91,8 @@ covers the provider.
 
 ## Commands
 ```sh
-beastbox user add --tenant T NAME [--admin]   # first, on the host: its dataset under the tenant's; password chosen at first sign-in
+beastbox user add --tenant T NAME [--admin]   # first, on the host: its dataset under the tenant's; password shown once,
+                                               # replaced at first sign-in; then `rescan --user NAME` (root identity)
                                                # --admin: recorded and shown on the Account page only, no extra
                                                # permission anywhere (kept for a future need); all administration is this CLI
 beastbox user list --tenant T                  # name, role, active|disabled, 2fa|-
