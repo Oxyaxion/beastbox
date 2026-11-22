@@ -217,6 +217,8 @@ pub struct Flow {
     pub verifier: String,
     /// Where the browser goes afterwards: one of `after_login`'s targets, or `""` (the files page).
     pub next: String,
+    /// End of the flow (Unix time): its cookie is refused after it, and remembered as used until it.
+    pub until: i64,
 }
 
 impl Flow {
@@ -263,12 +265,40 @@ pub fn read_flow(t: &TenantCtx, cookie: &str, now: i64) -> Option<Flow> {
         return None;
     }
     Some(Flow {
+        until,
         state: keyed(t, "oidc-state", cookie),
         nonce: keyed(t, "oidc-nonce", cookie),
         verifier: keyed(t, "oidc-pkce", cookie),
         cookie: cookie.to_string(),
         next: next.to_string(),
     })
+}
+
+/// Flows already used by a callback, by their `state` (unique per flow), until their end: the cookie is stateless, so
+/// without this a flow could be replayed for its 10 minutes (one back-channel call each). Bounded (§0.4).
+#[derive(Debug, Default)]
+pub struct UsedFlows(std::sync::Mutex<std::collections::HashMap<String, i64>>);
+
+/// Live flows remembered per tenant; full of live ones, a new callback is refused (fail closed).
+const MAX_USED_FLOWS: usize = 4096;
+
+impl UsedFlows {
+    /// Is this the flow's first callback? Records it. Poisoned lock or table full of live flows: no.
+    pub fn first_use(&self, flow: &Flow, now: i64) -> bool {
+        let Ok(mut m) = self.0.lock() else { return false };
+        if m.contains_key(&flow.state) {
+            return false;
+        }
+        if m.len() >= MAX_USED_FLOWS {
+            m.retain(|_, until| *until > now);
+            if m.len() >= MAX_USED_FLOWS {
+                tracing::warn!("used single sign-on flow table full");
+                return false;
+            }
+        }
+        m.insert(flow.state.clone(), flow.until);
+        true
+    }
 }
 
 /// Does the provider echo this flow's `state`? Constant time: a timing oracle on `state` would be a login CSRF oracle.
@@ -608,6 +638,7 @@ pub fn fuzz_provider(data: &[u8]) {
             nonce: "n".into(),
             verifier: "v".into(),
             next: String::new(),
+            until: 0,
         };
         let _ = check_id_token(&token, &c, &flow, 1_700_000_000);
     }
@@ -783,6 +814,30 @@ mod tests {
         Base64UrlUnpadded::encode_string(b)
     }
 
+    /// A flow's first callback passes, the same flow again does not, another flow does; a table full of live flows
+    /// refuses new ones (fail closed) and expired ones make room again.
+    #[test]
+    fn used_flows_once_and_bounded() {
+        let f = |state: &str, until: i64| Flow {
+            cookie: String::new(),
+            state: state.into(),
+            nonce: String::new(),
+            verifier: String::new(),
+            next: String::new(),
+            until,
+        };
+        let u = UsedFlows::default();
+        assert!(u.first_use(&f("a", 100), 10));
+        assert!(!u.first_use(&f("a", 100), 11));
+        assert!(u.first_use(&f("b", 100), 11));
+        let full = UsedFlows::default();
+        for i in 0..MAX_USED_FLOWS {
+            assert!(full.first_use(&f(&i.to_string(), 100), 10));
+        }
+        assert!(!full.first_use(&f("new", 100), 50), "full of live flows");
+        assert!(full.first_use(&f("new", 300), 200), "the expired ones were dropped");
+    }
+
     /// `header.payload.signature`, the payload being the JSON claims given.
     fn token(claims: &str) -> String {
         format!(
@@ -925,6 +980,7 @@ mod tests {
             nonce: String::new(),
             verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".into(),
             next: String::new(),
+            until: 0,
         };
         assert_eq!(rfc.challenge(), "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
         // The value is encoded as a query parameter: no `&` or `#` escapes from it.

@@ -23,6 +23,8 @@ pub struct Tenant {
     oidc: Option<OidcRuntime>,
     flows: crate::nc::Flows,
     failures: crate::auth::Failures,
+    /// Single sign-on flows already used (a flow signs in once).
+    oidc_used: crate::auth::oidc::UsedFlows,
     journal: crate::fs::Journal,
     index: crate::index::Indexes,
 }
@@ -65,6 +67,9 @@ impl TenantCtx {
     }
     pub(crate) fn failures(&self) -> &crate::auth::Failures {
         &self.0.failures
+    }
+    pub(crate) fn oidc_used(&self) -> &crate::auth::oidc::UsedFlows {
+        &self.0.oidc_used
     }
     /// ETag intent journal (§6). Closed until `serve` has opened it: writes refused.
     pub fn journal(&self) -> &crate::fs::Journal {
@@ -167,6 +172,7 @@ impl Registry {
                 oidc,
                 flows: Default::default(),
                 failures: Default::default(),
+                oidc_used: Default::default(),
                 journal: Default::default(),
                 index: Default::default(),
             }));

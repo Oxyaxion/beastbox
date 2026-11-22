@@ -32,7 +32,23 @@ const TENANT_WINDOW: Duration = Duration::from_secs(60);
 const USER_MAX_CODE_FAILS: u32 = 5;
 const USER_WINDOW: Duration = Duration::from_secs(15 * 60);
 
-/// A tenant's failure counters. In memory: a restart resets them.
+/// The key an address is counted under: an IPv4 address itself (also when written IPv4-mapped, `::ffff:a.b.c.d`), an
+/// IPv6 address by its /64 (what one subscriber, one machine or one attacker usually holds: counting each address
+/// alone would give them 2^64 tries).
+pub(crate) fn ip_key(ip: IpAddr) -> IpAddr {
+    match ip {
+        IpAddr::V4(_) => ip,
+        IpAddr::V6(v6) => match v6.to_ipv4_mapped() {
+            Some(v4) => IpAddr::V4(v4),
+            None => {
+                let s = v6.segments();
+                IpAddr::V6(std::net::Ipv6Addr::new(s[0], s[1], s[2], s[3], 0, 0, 0, 0))
+            }
+        },
+    }
+}
+
+/// A tenant's failure counters (per address: `ip_key`). In memory: a restart resets them.
 #[derive(Debug, Default)]
 pub struct Failures {
     by_ip: Mutex<HashMap<IpAddr, (u32, Instant)>>,
@@ -49,6 +65,7 @@ impl Failures {
 
     /// `ip_blocked` at a given time (tests move the clock).
     fn ip_blocked_at(&self, ip: IpAddr, now: Instant) -> bool {
+        let ip = ip_key(ip);
         let Ok(mut m) = self.by_ip.lock() else { return true };
         match m.get(&ip) {
             Some(&(n, t)) if now.duration_since(t) < IP_WINDOW => n >= IP_MAX_FAILS,
@@ -70,6 +87,7 @@ impl Failures {
     }
 
     fn record_ip_at(&self, ip: IpAddr, now: Instant) {
+        let ip = ip_key(ip);
         let Ok(mut m) = self.by_ip.lock() else { return };
         if m.len() >= IP_MAX_ENTRIES && !m.contains_key(&ip) {
             m.retain(|_, (_, t)| now.duration_since(*t) < IP_WINDOW);
@@ -780,6 +798,44 @@ pub(crate) mod tests {
     fn forge_last(v: &str) -> String {
         let (head, last) = v.split_at(v.len() - 1);
         format!("{head}{}", if last == "0" { "1" } else { "0" })
+    }
+
+    /// Address keys: IPv4 itself (also IPv4-mapped), IPv6 by its /64.
+    #[test]
+    fn ip_key_bounds() {
+        let k = |s: &str| ip_key(s.parse().unwrap());
+        assert_eq!(k("192.0.2.7"), k("::ffff:192.0.2.7"));
+        assert_ne!(k("192.0.2.7"), k("192.0.2.8"));
+        assert_eq!(k("2001:db8:1:2:aaaa::1"), k("2001:db8:1:2:ffff:ffff:ffff:ffff"));
+        assert_eq!(k("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::".parse::<IpAddr>().unwrap());
+        assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:1:3::1"));
+    }
+
+    /// Failures from one IPv6 /64 add up whatever the address inside it; the next /64 is not touched.
+    #[test]
+    fn ipv6_failures_count_per_64() {
+        let f = Failures::default();
+        let now = Instant::now();
+        for i in 1..=IP_MAX_FAILS {
+            assert!(!f.ip_blocked_at(format!("2001:db8::{i:x}").parse().unwrap(), now));
+            f.record_ip_at(format!("2001:db8::{i:x}").parse().unwrap(), now);
+        }
+        assert!(f.ip_blocked_at("2001:db8::ffff:1".parse().unwrap(), now));
+        assert!(!f.ip_blocked_at("2001:db8:0:1::1".parse().unwrap(), now));
+    }
+
+    proptest::proptest! {
+        /// Any two IPv6 addresses share a key exactly when they share their first 64 bits; an IPv4 key is itself.
+        #[test]
+        fn ip_key_is_the_64(a: u128, b: u128, v4: u32) {
+            use std::net::{Ipv4Addr, Ipv6Addr};
+            let (x, y) = (Ipv6Addr::from(a), Ipv6Addr::from(b));
+            if x.to_ipv4_mapped().is_none() && y.to_ipv4_mapped().is_none() {
+                proptest::prop_assert_eq!(ip_key(x.into()) == ip_key(y.into()), a >> 64 == b >> 64);
+            }
+            proptest::prop_assert_eq!(ip_key(Ipv4Addr::from(v4).into()), IpAddr::V4(Ipv4Addr::from(v4)));
+            proptest::prop_assert_eq!(ip_key(ip_key(x.into())), ip_key(x.into()));
+        }
     }
 
     /// Constant-time equality: equal values only; a different byte anywhere, a prefix, a longer value: not equal.

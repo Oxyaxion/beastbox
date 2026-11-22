@@ -1,6 +1,6 @@
 //! Nextcloud endpoints (§7): status, capabilities, cloud/user, Login Flow v2, unimplemented OCS.
 
-use crate::auth::{self, UserCtx};
+use crate::auth;
 use crate::http::{App, Base, ClientIp, blocking, form_field, require_user, too_many};
 use crate::i18n::Lang;
 use crate::tenant::TenantCtx;
@@ -245,7 +245,12 @@ pub async fn flow_start(
     };
     // Flows of this IP still pending (not yet confirmed); a confirmed flow only waits for its poll.
     let added = t.flows().with(|v| {
-        if v.iter().filter(|f| f.ip == ip.0 && f.done.is_none()).count() >= FLOWS_PER_IP {
+        let key = auth::ip_key(ip.0);
+        if v.iter()
+            .filter(|f| auth::ip_key(f.ip) == key && f.done.is_none())
+            .count()
+            >= FLOWS_PER_IP
+        {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
         if v.len() >= MAX_FLOWS {
@@ -333,11 +338,30 @@ pub async fn flow_poll(Extension(t): Extension<TenantCtx>, Extension(base): Exte
     }
 }
 
-fn pending(t: &TenantCtx, login: &str) -> bool {
+/// The client a pending flow was opened by: its label (from its User-Agent) and its IP, shown before authorizing.
+fn flow_origin(t: &TenantCtx, login: &str) -> Option<(String, std::net::IpAddr)> {
     let mac = t.mac(login.as_bytes());
     t.flows()
-        .with(|v| v.iter().any(|f| f.login_mac == mac && f.done.is_none()))
-        == Some(true)
+        .with(|v| {
+            v.iter()
+                .find(|f| f.login_mac == mac && f.done.is_none())
+                .map(|f| (f.label.clone(), f.ip))
+        })
+        .flatten()
+}
+
+/// Text for an HTML page built by hand (`page`): `& < > " '` escaped.
+fn esc(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            '&' => "&amp;".to_owned(),
+            '<' => "&lt;".to_owned(),
+            '>' => "&gt;".to_owned(),
+            '"' => "&quot;".to_owned(),
+            '\'' => "&#39;".to_owned(),
+            c => c.to_string(),
+        })
+        .collect()
 }
 
 fn page(lang: Lang, code: StatusCode, body: &str) -> Response {
@@ -361,13 +385,36 @@ fn page(lang: Lang, code: StatusCode, body: &str) -> Response {
         .into_response()
 }
 
-/// The confirmation form: the browser is signed in already (password, single sign-on, second step and the
-/// other gates passed), so authorizing is all that is left — the same page Nextcloud shows.
-fn flow_form(lang: Lang) -> String {
+/// The confirmation form: who asks (the client's label and IP, escaped), a warning against links received from
+/// someone else, and the `Reproof` (password, code, or nothing when the sign-in is recent) — a session and one click are
+/// not enough to hand out a permanent app password.
+fn flow_form(lang: Lang, (label, ip): (&str, std::net::IpAddr), field: &str, message: &str) -> String {
+    let proof = match field {
+        "password" => format!(
+            "<p><label>{} <input name=\"password\" type=\"password\" autocomplete=\"current-password\" required></label></p>",
+            lang.t("Your password")
+        ),
+        "code" => format!(
+            "<p><label>{} <input name=\"code\" inputmode=\"numeric\" autocomplete=\"one-time-code\" maxlength=\"6\" required></label></p>",
+            lang.t("Code from the app")
+        ),
+        _ => String::new(),
+    };
+    let message = if message.is_empty() {
+        String::new()
+    } else {
+        format!("<p role=\"alert\"><strong>{}</strong></p>", esc(message))
+    };
     format!(
-        "<h1>{}</h1><p>{}</p><form method=\"post\"><p><button>{}</button></p></form>",
+        "<h1>{}</h1>{message}<p>{}</p><ul><li>{} <strong>{}</strong></li><li>{} <strong>{}</strong></li></ul>\
+         <p><strong>{}</strong></p><form method=\"post\">{proof}<p><button>{}</button></p></form>",
         lang.t("Connect a client"),
         lang.t("A client requests access to your files."),
+        lang.t("Software:"),
+        esc(label),
+        lang.t("Requested from the address:"),
+        esc(&ip.to_string()),
+        lang.t("Only authorize it if you started this connection yourself, a moment ago, from this software. Otherwise close this page: whoever sent you this link would get access to all your files."),
         lang.t("Authorize this client"),
     )
 }
@@ -380,11 +427,11 @@ async fn flow_session(
     t: &TenantCtx,
     h: &HeaderMap,
     next: &str,
-) -> std::result::Result<UserCtx, Response> {
+) -> std::result::Result<crate::web::WebUser, Response> {
     match crate::web::session_any(app, t, h).await {
         None => Err(crate::web::see_other(&format!("/login?next={next}"))),
         Some(w) => match w.gate {
-            None => Ok(w.u),
+            None => Ok(w),
             Some(g) if g == crate::web::LOGIN_CODE => Err(crate::web::see_other(&format!("{g}?next={next}"))),
             Some(g) => Err(crate::web::see_other(g)),
         },
@@ -400,42 +447,60 @@ pub async fn flow_page(
     h: HeaderMap,
 ) -> Response {
     let lang = Lang::from(&h, None);
-    if !pending(&t, &login) {
+    let Some((label, ip)) = flow_origin(&t, &login) else {
         return page(
             lang,
             StatusCode::NOT_FOUND,
             &format!("<p>{}</p>", lang.t("Unknown or expired login link.")),
         );
-    }
+    };
     let next = format!("/index.php/login/v2/flow/{login}");
     match flow_session(&app, &t, &h, &next).await {
-        Ok(_) => page(lang, StatusCode::OK, &flow_form(lang)),
+        Ok(w) => {
+            let field = w.reproof().field();
+            page(lang, StatusCode::OK, &flow_form(lang, (&label, ip), field, ""))
+        }
         Err(r) => r,
     }
 }
 
 /// `POST /index.php/login/v2/flow/{token}`: creates the app password of the signed-in account and hands it to the
-/// flow. The 256-bit token in the URL serves as CSRF protection (unpredictable for a third party); the session
-/// has already passed the second step and the other gates, so nothing is asked here.
+/// flow, after the `Reproof` (a phished click with a live session is not enough). The 256-bit token in the URL serves
+/// as CSRF protection (unpredictable for a third party).
 pub async fn flow_submit(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
+    Extension(ip): Extension<ClientIp>,
     Path(login): Path<String>,
     h: HeaderMap,
+    body: Bytes,
 ) -> Response {
     let lang = Lang::from(&h, None);
-    if !pending(&t, &login) {
+    let Some(origin) = flow_origin(&t, &login) else {
         return page(
             lang,
             StatusCode::NOT_FOUND,
             &format!("<p>{}</p>", lang.t("Unknown or expired login link.")),
         );
-    }
+    };
     let next = format!("/index.php/login/v2/flow/{login}");
-    let user = match flow_session(&app, &t, &h, &next).await {
-        Ok(u) => u,
+    let w = match flow_session(&app, &t, &h, &next).await {
+        Ok(w) => w,
         Err(r) => return r,
     };
+    match crate::web::reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+        Ok(()) => {}
+        Err(crate::web::Unproven::Wrong) => {
+            let field = w.reproof().field();
+            let m = lang.t("Wrong password or code: nothing was created.");
+            let form = flow_form(lang, (&origin.0, origin.1), field, m);
+            return page(lang, StatusCode::UNAUTHORIZED, &form);
+        }
+        Err(crate::web::Unproven::TooMany) => return too_many(),
+        Err(crate::web::Unproven::Stale) => return crate::web::sign_in_again(&app, &w, &next).await,
+        Err(crate::web::Unproven::Busy) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+    let user = w.u;
     let lmac = t.mac(login.as_bytes());
     let label = t
         .flows()

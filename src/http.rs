@@ -986,7 +986,15 @@ pub(crate) mod tests {
         let session = alice_session(app).await;
         let form = format!("/index.php/login/v2/flow/{}", logins[0]);
         assert_eq!(
-            call(app, "POST", &form, &[A, ("cookie", session.as_str())], "").await.0,
+            call(
+                app,
+                "POST",
+                &form,
+                &[A, ("cookie", session.as_str())],
+                "password=pw-alice"
+            )
+            .await
+            .0,
             StatusCode::OK
         );
         assert_eq!(start(ip7()).await.0, StatusCode::OK);
@@ -1022,6 +1030,38 @@ pub(crate) mod tests {
         let (s, h, _) = call(app, "POST", "/login", &[A], "user=alice&password=pw-alice").await;
         assert_eq!(s, StatusCode::SEE_OTHER, "login refused");
         h["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_owned()
+    }
+
+    /// The Login Flow page shows the client's label escaped (it comes from a User-Agent anyone can write); wrong
+    /// passwords there count like a sign-in's: the 11th try from the IP is a 429, even with the right password.
+    #[tokio::test]
+    async fn login_flow_page_escapes_and_limits() {
+        let e = env();
+        let app = &e.app;
+        let proto = ("x-forwarded-proto", "http");
+        let ua = ("user-agent", "evil<script>\"x'&");
+        let (_, _, body) = call(app, "POST", "/index.php/login/v2", &[A, proto, ua], "").await;
+        let login = grab(&body, "login");
+        let path = login.strip_prefix("http://files.alpha.example").unwrap().to_owned();
+        let session = alice_session(app).await;
+        let c = [A, ("cookie", session.as_str())];
+        let (_, _, page) = call(app, "GET", &path, &c, "").await;
+        assert!(
+            page.contains("<strong>evil&lt;script&gt;&quot;x&#39;&amp;</strong>") && !page.contains("<script>"),
+            "{page}"
+        );
+        for _ in 0..10 {
+            assert_eq!(
+                call(app, "POST", &path, &c, "password=faux").await.0,
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        assert_eq!(
+            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        let alpha = e.state.registry.by_name("alpha").unwrap();
+        assert!(e.state.db.token_list(&alpha, "alice").unwrap().is_empty());
     }
 
     #[tokio::test]
@@ -1064,7 +1104,8 @@ pub(crate) mod tests {
         // Other tenant: the flow token does not exist there.
         let b = ("host", "x.beta.example");
         assert_eq!(status(app, "GET", &login_path, &[b]).await, StatusCode::NOT_FOUND);
-        // Signed in (password, second step and gates passed): one button, no credentials asked.
+        // Signed in: the page says who asks (client label, address) and warns; the password is asked again (a phished
+        // click with a live session is not enough).
         let session = alice_session(app).await;
         let c = [A, ("cookie", session.as_str())];
         let (s, h, page_body) = call(app, "GET", &login_path, &c, "").await;
@@ -1076,10 +1117,23 @@ pub(crate) mod tests {
                 .contains("default-src 'none'")
         );
         assert!(
-            page_body.contains("Authorize this client") && !page_body.contains("name=\"password\""),
+            page_body.contains("Authorize this client")
+                && page_body.contains("name=\"password\"")
+                && page_body.contains("Software: <strong>Nextcloud Android 35.0.2</strong>")
+                && page_body.contains("Requested from the address: <strong>")
+                && page_body.contains("whoever sent you this link would get access to all your files"),
             "{page_body}"
         );
-        let good = call(app, "POST", &login_path, &c, "").await.0;
+        // Without the password, or a wrong one: nothing created, the page again.
+        for body in ["", "password=", "password=faux"] {
+            let (s, _, p) = call(app, "POST", &login_path, &c, body).await;
+            assert!(
+                s == StatusCode::UNAUTHORIZED && p.contains("Wrong password or code"),
+                "{body}"
+            );
+        }
+        assert_eq!(e.state.db.token_list(&alpha, "alice").unwrap().len(), tokens_before);
+        let good = call(app, "POST", &login_path, &c, "password=pw-alice").await.0;
         assert_eq!(good, StatusCode::OK);
         // Poll on the other tenant: 404; on the right one: 200 only once.
         assert_eq!(

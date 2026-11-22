@@ -664,7 +664,7 @@ async fn account_tokens_and_password() {
         "POST",
         "/web/account/tokens",
         &c,
-        &format!("csrf={csrf}&label=T%C3%A9l%C3%A9phone"),
+        &format!("csrf={csrf}&label=T%C3%A9l%C3%A9phone&password=pw-alice"),
     )
     .await;
     let secret = page
@@ -1036,6 +1036,156 @@ async fn hidden_files_toggle() {
         StatusCode::SEE_OTHER
     );
     assert_eq!(status(app, "GET", "/web/tree/H/", &b).await, StatusCode::SEE_OTHER);
+}
+
+/// Revoking an app password (Account page): only the account's own, only with the form token, and at once — the next
+/// WebDAV or OCS request with it is refused (checked against the database each time, nothing cached).
+#[tokio::test]
+async fn revoking_an_app_password_is_immediate_and_own_only() {
+    let e = env();
+    let app = &e.app;
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let mine = auth::new_app_password(&e.state.db, &t, "alice", "rclone").unwrap();
+    let id = e.state.db.token_list(&t, "alice").unwrap()[0].token_id.clone();
+    let h = auth::hash_password("pw-de-bob-123").unwrap();
+    e.state.db.user_add(&t, "bob", &h, false).unwrap();
+    auth::new_app_password(&e.state.db, &t, "bob", "bob's").unwrap();
+    let bobs = e.state.db.token_list(&t, "bob").unwrap()[0].token_id.clone();
+    let dav = basic("alice", &mine);
+    let works = |path: &'static str| {
+        let dav = dav.clone();
+        async move {
+            status(
+                app,
+                "PROPFIND",
+                path,
+                &[A, ("authorization", dav.as_str()), ("depth", "0")],
+            )
+            .await
+        }
+    };
+    let ocs = |a: String| async move {
+        status(
+            app,
+            "GET",
+            "/ocs/v1.php/cloud/user?format=json",
+            &[A, ("authorization", a.as_str())],
+        )
+        .await
+    };
+    assert_eq!(works("/remote.php/dav/files/alice/").await, StatusCode::MULTI_STATUS);
+    assert_eq!(ocs(dav.clone()).await, StatusCode::OK);
+    // Without the form token: refused, still valid.
+    let (s, _, _) = call(app, "POST", "/web/account/tokens/revoke", &c, &format!("id={id}")).await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert_eq!(ocs(dav.clone()).await, StatusCode::OK);
+    // Another user's (same tenant): not found, untouched.
+    let (s, _, _) = call(
+        app,
+        "POST",
+        "/web/account/tokens/revoke",
+        &c,
+        &format!("csrf={csrf}&id={bobs}"),
+    )
+    .await;
+    assert_eq!(s, StatusCode::NOT_FOUND);
+    assert_eq!(e.state.db.token_list(&t, "bob").unwrap().len(), 1);
+    // Its own: revoked, refused at once on both surfaces.
+    let (s, _, p) = call(
+        app,
+        "POST",
+        "/web/account/tokens/revoke",
+        &c,
+        &format!("csrf={csrf}&id={id}"),
+    )
+    .await;
+    assert!(s == StatusCode::OK && p.contains("App password revoked."));
+    assert_eq!(works("/remote.php/dav/files/alice/").await, StatusCode::UNAUTHORIZED);
+    assert_eq!(ocs(dav.clone()).await, StatusCode::UNAUTHORIZED);
+    assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
+}
+
+/// What is asked again before an app password: the password when there is one, else the code, else a recent sign-in.
+#[test]
+fn reproof_rule() {
+    use super::Reproof;
+    for (pw, totp, r, field) in [
+        (true, true, Reproof::Password, "password"),
+        (true, false, Reproof::Password, "password"),
+        (false, true, Reproof::Code, "code"),
+        (false, false, Reproof::FreshSignIn, ""),
+    ] {
+        assert_eq!(Reproof::of(pw, totp), r);
+        assert_eq!(r.field(), field);
+    }
+}
+
+/// A new app password (Account page, QR code) asks the password again: absent or wrong, nothing is created and a wrong
+/// one counts as a failure (the 11th from the IP is a 429, even with the right password); right, it is created. The
+/// other tenant's session gets nothing.
+#[tokio::test]
+async fn app_passwords_ask_the_password_again() {
+    let e = env();
+    let app = &e.app;
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let (_, _, page) = call(app, "GET", "/web/account", &c, "").await;
+    assert!(page.contains("id=\"tok-pw\"") && page.contains("id=\"qr-pw\""));
+    for (path, extra) in [("/web/account/tokens", "&label=x"), ("/web/account/qr", "")] {
+        for pw in ["", "&password=", "&password=faux"] {
+            let (s, _, p) = call(app, "POST", path, &c, &format!("csrf={csrf}{extra}{pw}")).await;
+            assert!(
+                s == StatusCode::UNAUTHORIZED && p.contains("Wrong password or code"),
+                "{path} {pw}"
+            );
+        }
+    }
+    assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
+    let ok = format!("csrf={csrf}&label=x&password=pw-alice");
+    assert_eq!(
+        call(app, "POST", "/web/account/tokens", &c, &ok).await.0,
+        StatusCode::OK
+    );
+    let (s, _, p) = call(
+        app,
+        "POST",
+        "/web/account/qr",
+        &c,
+        &format!("csrf={csrf}&password=pw-alice"),
+    )
+    .await;
+    assert!(s == StatusCode::OK && p.contains("<svg role=\"img\""));
+    assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 2);
+    // Other tenant: alpha's session opens nothing there.
+    let (s, h, _) = call(
+        app,
+        "POST",
+        "/web/account/tokens",
+        &[B, ("cookie", cookie.as_str())],
+        &ok,
+    )
+    .await;
+    assert_eq!((s, h["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/login"));
+    // Wrong passwords count: 2 above (absent or empty ones are not tried); 8 more make 10, then even the right one
+    // gets a 429 from this IP.
+    for _ in 0..8 {
+        call(
+            app,
+            "POST",
+            "/web/account/tokens",
+            &c,
+            &format!("csrf={csrf}&label=x&password=faux"),
+        )
+        .await;
+    }
+    assert_eq!(
+        call(app, "POST", "/web/account/tokens", &c, &ok).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 2);
 }
 
 /// CSRF token: only the session's exact token passes; absent, empty, cut, longer or one character off is refused.
@@ -3737,7 +3887,14 @@ async fn forced_account_cannot_connect_a_device() {
     assert_eq!(call(&e.app, "POST", "/web/welcome", &c, &body).await.0, StatusCode::OK);
     // The session is closed by the change: sign in with the new password, then confirm the flow.
     let (cookie, _) = login(&e, A, "mon-secret-a-moi").await;
-    let (s, _, _) = call(&e.app, "POST", &form, &[A, ("cookie", cookie.as_str())], "").await;
+    let (s, _, _) = call(
+        &e.app,
+        "POST",
+        &form,
+        &[A, ("cookie", cookie.as_str())],
+        "password=mon-secret-a-moi",
+    )
+    .await;
     assert_eq!(s, StatusCode::OK);
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 1);
 }
@@ -4098,11 +4255,25 @@ async fn qr_code_for_the_mobile_app() {
         call(app, "POST", "/web/account/qr", &c, "csrf=faux").await.0,
         StatusCode::FORBIDDEN
     );
-    let (s, h, page) = call(app, "POST", "/web/account/qr", &c, &format!("csrf={csrf}")).await;
+    let (s, h, page) = call(
+        app,
+        "POST",
+        "/web/account/qr",
+        &c,
+        &format!("csrf={csrf}&password=pw-alice"),
+    )
+    .await;
     assert_eq!((s, h["cache-control"].to_str().unwrap()), (StatusCode::OK, "no-store"));
     assert!(page.contains(r#"<div class="qr-code"><svg role="img""#) && page.contains("Done"));
     assert!(page.contains("Mobile app (QR code)") && page.contains("expires at"));
-    call(app, "POST", "/web/account/qr", &c, &format!("csrf={csrf}")).await;
+    call(
+        app,
+        "POST",
+        "/web/account/qr",
+        &c,
+        &format!("csrf={csrf}&password=pw-alice"),
+    )
+    .await;
     let (_, _, page) = call(app, "GET", "/web/account", &c, "").await;
     assert_eq!(page.matches("<strong>Mobile app (QR code)</strong>").count(), 1);
     assert!(!page.contains("<svg role=\"img\"")); // never shown again

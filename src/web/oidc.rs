@@ -139,6 +139,10 @@ pub async fn callback(
     if !oidc::state_ok(&flow, param(&q, "state").unwrap_or_default().as_str()) {
         return refuse(&t, ip, oidc::Refusal::State);
     }
+    // A flow signs in once: its cookie replayed (even within its 10 minutes) is refused before any back-channel call.
+    if !t.oidc_used().first_use(&flow, now) {
+        return refuse(&t, ip, oidc::Refusal::Cookie);
+    }
     let code = param(&q, "code")
         .filter(|c| (1..=MAX_CODE).contains(&c.len()) && c.bytes().all(|b| (0x21..=0x7e).contains(&b)));
     let Some(code) = code else {

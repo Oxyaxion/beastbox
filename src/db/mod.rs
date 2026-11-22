@@ -220,7 +220,8 @@ const Q_TOKEN_SEEN: &str = "UPDATE app_token SET last_used_at = ?3 WHERE tenant_
 const Q_TOKEN_DEL: &str = "DELETE FROM app_token WHERE tenant_id = ?1 AND user_id = ?2 AND token_id = ?3";
 const Q_SESSION_ADD: &str = "INSERT INTO session (tenant_id, session_id, user_id, mac, created_at, expires_at, pending) \
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
-const Q_SESSION_USER: &str = "SELECT s.user_id, u.must_change, s.pending, u.totp_secret IS NOT NULL FROM session s JOIN user u ON u.tenant_id = s.tenant_id AND u.user_id = s.user_id \
+const Q_SESSION_USER: &str = "SELECT s.user_id, u.must_change, s.pending, u.totp_secret IS NOT NULL, \
+     u.password_hash IS NOT NULL, s.created_at FROM session s JOIN user u ON u.tenant_id = s.tenant_id AND u.user_id = s.user_id \
      WHERE s.tenant_id = ?1 AND s.mac = ?2 AND u.active = 1 AND s.expires_at > ?3";
 const Q_SESSION_DEL: &str = "DELETE FROM session WHERE tenant_id = ?1 AND mac = ?2";
 const Q_TOTP_GET: &str = "SELECT totp_secret, totp_last FROM user WHERE tenant_id = ?1 AND user_id = ?2 AND active = 1";
@@ -565,6 +566,10 @@ pub struct SessionRow {
     pub pending: bool,
     /// Two-step verification on for the account.
     pub totp: bool,
+    /// The account has a human password (an account bound to single sign-on has none).
+    pub has_password: bool,
+    /// When this session was opened (Unix time): a recent sign-in, for what asks one.
+    pub created: i64,
 }
 
 /// An `audit` row: when, who (`audit_in` explains `actor`), which action, its result.
@@ -962,6 +967,8 @@ impl Db {
                     must_change: r.get::<_, i64>(1)? != 0,
                     pending: r.get::<_, i64>(2)? != 0,
                     totp: r.get::<_, i64>(3)? != 0,
+                    has_password: r.get::<_, i64>(4)? != 0,
+                    created: r.get(5)?,
                 })
             })
             .optional()?)

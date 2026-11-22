@@ -620,6 +620,21 @@ const FR: &[(&str, &str)] = &[
     ("Shared links", "Liens partagés"),
     ("Show", "Afficher"),
     ("Sort", "Trier"),
+    ("Your password", "Votre mot de passe"),
+    ("Software:", "Logiciel :"),
+    ("Requested from the address:", "Demandé depuis l'adresse :"),
+    (
+        "Only authorize it if you started this connection yourself, a moment ago, from this software. Otherwise close this page: whoever sent you this link would get access to all your files.",
+        "N'autorisez que si vous venez vous-même de lancer cette connexion depuis ce logiciel. Sinon, fermez cette page : la personne qui vous a envoyé ce lien obtiendrait l'accès à tous vos fichiers.",
+    ),
+    (
+        "You may be asked to sign in again first.",
+        "Il vous sera peut-être demandé de vous reconnecter d'abord.",
+    ),
+    (
+        "Wrong password or code: nothing was created.",
+        "Mot de passe ou code incorrect : rien n'a été créé.",
+    ),
     ("Show hidden files", "Afficher les fichiers cachés"),
     ("Hide hidden files", "Masquer les fichiers cachés"),
     ("Sort:", "Trier :"),

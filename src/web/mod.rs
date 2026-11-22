@@ -402,6 +402,9 @@ pub(crate) struct WebUser {
     totp: bool,
     /// Hidden files (name starting with `.`) shown in the web pages: the `hidden` cookie (`1`), hidden by default.
     pub(crate) show_hidden: bool,
+    /// The account has a password, and when this session was opened: what `Reproof` asks again.
+    pub(crate) has_password: bool,
+    pub(crate) signed_in: i64,
 }
 
 /// Second step of the sign-in (two-step verification).
@@ -438,6 +441,8 @@ pub(crate) async fn session_any(app: &Arc<App>, t: &TenantCtx, h: &HeaderMap) ->
             gate: gate(app, t, &row),
             totp: row.totp,
             show_hidden: cookie(h, &cookie_name(app, "hidden")) == Some("1"),
+            has_password: row.has_password,
+            signed_in: row.created,
         }),
         Ok(Err(e)) => {
             tracing::error!(tenant = t.name(), "session illisible : {e}");
@@ -472,6 +477,120 @@ async fn need_gate(app: &Arc<App>, t: &TenantCtx, h: &HeaderMap, g: &str) -> Res
 }
 
 /// Modifying form: session and CSRF token required (§8).
+/// What an action that hands out lasting access (an app password: Login Flow, the mobile app's QR code, the Account page)
+/// asks again besides the session, so that a stolen or borrowed session, or a phished click, is not enough: the
+/// password when the account has one; otherwise (single sign-on) a code when two-step verification is on; otherwise a
+/// sign-in of less than `FRESH_SIGN_IN`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Reproof {
+    Password,
+    Code,
+    FreshSignIn,
+}
+
+/// How recent a sign-in must be when the account has neither a password nor two-step verification.
+pub(crate) const FRESH_SIGN_IN: i64 = 5 * 60;
+
+impl WebUser {
+    /// What this session's account is asked again (`Reproof`).
+    pub(crate) fn reproof(&self) -> Reproof {
+        Reproof::of(self.has_password, self.totp)
+    }
+}
+
+impl Reproof {
+    pub(crate) fn of(has_password: bool, totp: bool) -> Self {
+        match (has_password, totp) {
+            (true, _) => Reproof::Password,
+            (false, true) => Reproof::Code,
+            (false, false) => Reproof::FreshSignIn,
+        }
+    }
+
+    /// The form field it reads ("" when nothing is typed).
+    pub(crate) fn field(self) -> &'static str {
+        match self {
+            Reproof::Password => "password",
+            Reproof::Code => "code",
+            Reproof::FreshSignIn => "",
+        }
+    }
+}
+
+/// Why a `Reproof` was not given.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Unproven {
+    /// Missing or wrong (a wrong one counts as an authentication failure).
+    Wrong,
+    TooMany,
+    /// The sign-in is too old: sign in again (`sign_in_again`).
+    Stale,
+    Busy,
+}
+
+/// Checks the `Reproof` of `w` against the form `body` (`now`: Unix time). Failures count like a sign-in's: per IP, and
+/// per account for a code.
+pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u8], now: i64) -> Result<(), Unproven> {
+    let t = w.u.tenant().clone();
+    let kind = w.reproof();
+    if kind == Reproof::FreshSignIn {
+        return if now.saturating_sub(w.signed_in) <= FRESH_SIGN_IN {
+            Ok(())
+        } else {
+            Err(Unproven::Stale)
+        };
+    }
+    let Some(given) = form_field(body, kind.field()).filter(|g| !g.is_empty()) else {
+        return Err(Unproven::Wrong);
+    };
+    if t.failures().ip_blocked(ip.0) || (kind == Reproof::Code && t.failures().code_blocked(w.u.user())) {
+        return Err(Unproven::TooMany);
+    }
+    let _permit = match kind {
+        Reproof::Password => match tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await {
+            Ok(Ok(p)) => Some(p),
+            _ => return Err(Unproven::Busy),
+        },
+        _ => None,
+    };
+    let (app2, u) = (app.clone(), w.u.clone());
+    let ok = blocking(move || -> crate::Result<bool> {
+        let (db, t, user) = (&app2.db, u.tenant(), u.user());
+        Ok(match kind {
+            Reproof::Password => auth::verify_human(db, t, user, &given, &app2.dummy_hash)?.is_some(),
+            _ => auth::verify_second(db, t, user, &given, u64::try_from(now).unwrap_or(0))? != auth::Second::Wrong,
+        })
+    })
+    .await;
+    match ok {
+        Ok(Ok(true)) => Ok(()),
+        Ok(Ok(false)) => {
+            tracing::warn!(tenant = t.name(), ip = %ip.0, user = w.u.user(), "proof asked again: wrong");
+            t.failures().record_ip(ip.0);
+            if kind == Reproof::Code {
+                t.failures().record_code(w.u.user());
+            }
+            Err(Unproven::Wrong)
+        }
+        _ => Err(Unproven::Busy),
+    }
+}
+
+/// The sign-in is too old for what was asked: this session ends, and the sign-in page comes back to `next`.
+pub(crate) async fn sign_in_again(app: &Arc<App>, w: &WebUser, next: &str) -> Response {
+    let (app2, t, secret) = (app.clone(), w.u.tenant().clone(), w.secret.clone());
+    let _ = blocking(move || auth::end_session(&app2.db, &t, &secret)).await;
+    let c = set_cookie(app, &cookie_name(app, "sess"), "", 0);
+    (
+        StatusCode::SEE_OTHER,
+        [
+            (header::LOCATION, format!("/login?next={next}")),
+            (header::SET_COOKIE, c),
+        ],
+    )
+        .into_response()
+}
+
 /// The CSRF token received (form field or header) is the session's, compared in constant time.
 pub(crate) fn csrf_ok(given: Option<&str>, expected: &str) -> bool {
     given.is_some_and(|g| auth::constant_time_eq(g.as_bytes(), expected.as_bytes()))
@@ -3730,6 +3849,8 @@ enum Notice {
 struct TwoFaView {
     /// "hidden" (tenant `off`, not on), "off", "setup" (QR code shown), "on".
     state: &'static str,
+    /// The account has a password: asked with the code to manage two-step verification.
+    ask_password: bool,
     required: bool,
     /// QR code (inline SVG, nothing from the user in it) and the same key in groups of 4.
     qr: String,
@@ -3772,6 +3893,8 @@ struct AccountPage {
     used_bytes: u64,
     total_bytes: u64,
     tokens: Vec<TokenLine>,
+    /// What a new app password asks again (`Reproof::field`: "password", "code", or "" for a recent sign-in).
+    reproof: &'static str,
 }
 
 async fn account(app: &Arc<App>, w: &WebUser, lang: Lang, notice: Notice, extra: (String, String)) -> Response {
@@ -3814,6 +3937,7 @@ async fn account_tf(
             (None, false) => "off",
         },
         required: mode == crate::config::TwoFactor::Required,
+        ask_password: w.has_password,
         action: "/web/account/2fa/confirm#double",
         csrf: w.csrf.clone(),
         left,
@@ -3846,6 +3970,7 @@ async fn account_tf(
         free: render::size(lang, space.available),
         used_bytes: space.used,
         total_bytes: space.used.saturating_add(space.available),
+        reproof: w.reproof().field(),
         tokens: tokens
             .into_iter()
             .map(|t| TokenLine {
@@ -4130,11 +4255,13 @@ async fn totp_manage(
         return account(&app, &w, lang, n, Default::default()).await;
     }
     let op = form_field(&body, "op").unwrap_or_default();
-    let (Some(pw), Some(code), true) = (
-        form_field(&body, "password"),
-        form_field(&body, "code"),
-        op == "codes" || op == "off",
-    ) else {
+    // The password when the account has one; an account bound to single sign-on has none, its code is the proof.
+    let pw = if w.has_password {
+        form_field(&body, "password")
+    } else {
+        Some(String::new())
+    };
+    let (Some(pw), Some(code), true) = (pw, form_field(&body, "code"), op == "codes" || op == "off") else {
         let n = notice(StatusCode::BAD_REQUEST, "Missing fields.");
         return account(&app, &w, lang, n, Default::default()).await;
     };
@@ -4151,12 +4278,12 @@ async fn totp_manage(
     let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await else {
         return (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, "5")]).into_response();
     };
-    let (app2, u) = (app.clone(), w.u.clone());
+    let (app2, u, has_password) = (app.clone(), w.u.clone(), w.has_password);
     let off = op == "off";
     let now = totp::now();
     let r = blocking(move || -> crate::Result<Result<Option<Vec<String>>, Proof>> {
         let (db, t, user) = (&app2.db, u.tenant(), u.user());
-        if auth::verify_human(db, t, user, &pw, &app2.dummy_hash)?.is_none() {
+        if has_password && auth::verify_human(db, t, user, &pw, &app2.dummy_hash)?.is_none() {
             return Ok(Err(Proof::Password));
         }
         if auth::verify_second(db, t, user, &code, now)? == auth::Second::Wrong {
@@ -4451,9 +4578,24 @@ async fn welcome_post(
     }
 }
 
+/// The Account page after a refused `Reproof`: nothing created.
+async fn unproven(app: &Arc<App>, w: &WebUser, lang: Lang, e: Unproven) -> Response {
+    match e {
+        Unproven::Wrong => {
+            let n = Notice::Tokens(StatusCode::UNAUTHORIZED, "Wrong password or code: nothing was created.");
+            account(app, w, lang, n, Default::default()).await
+        }
+        Unproven::TooMany => too_many(),
+        Unproven::Stale => sign_in_again(app, w, "/web/account").await,
+        Unproven::Busy => (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, "5")]).into_response(),
+    }
+}
+
+/// `POST /web/account/tokens`: a new app password, after the `Reproof`.
 async fn token_create(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
+    Extension(ip): Extension<ClientIp>,
     h: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -4462,6 +4604,9 @@ async fn token_create(
         Err(r) => return r,
     };
     let lang = lang(&app, &h);
+    if let Err(e) = reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+        return unproven(&app, &w, lang, e).await;
+    }
     let label: String = form_field(&body, "label")
         .unwrap_or_default()
         .chars()
@@ -4498,11 +4643,12 @@ pub(crate) fn qr_svg(lang: Lang, content: &str) -> Option<String> {
 }
 
 /// `POST /web/account/qr`: a QR code to connect the Nextcloud mobile app, holding a new app password that is gone
-/// after 10 minutes if unused; a new one cancels the previous one not used yet.
+/// after 10 minutes if unused; a new one cancels the previous one not used yet. After the `Reproof`.
 async fn qr_create(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
     Extension(origin): Extension<Base>,
+    Extension(ip): Extension<ClientIp>,
     h: HeaderMap,
     body: Bytes,
 ) -> Response {
@@ -4511,6 +4657,9 @@ async fn qr_create(
         Err(r) => return r,
     };
     let lang = lang(&app, &h);
+    if let Err(e) = reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+        return unproven(&app, &w, lang, e).await;
+    }
     let label = lang.t("Mobile app (QR code)");
     let (app2, u) = (app.clone(), w.u.clone());
     let Ok(Ok(secret)) = blocking(move || auth::new_qr_password(&app2.db, u.tenant(), u.user(), label)).await else {

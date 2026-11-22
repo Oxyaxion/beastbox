@@ -249,9 +249,15 @@ async fn account_refusals() {
     assert_eq!(s, StatusCode::NOT_FOUND);
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 1);
     assert_eq!(
-        call(&e.app, "POST", "/web/account/qr", &c, &format!("csrf={csrf}"))
-            .await
-            .0,
+        call(
+            &e.app,
+            "POST",
+            "/web/account/qr",
+            &c,
+            &format!("csrf={csrf}&password=pw-alice")
+        )
+        .await
+        .0,
         StatusCode::OK
     );
     let fr = [A, ("cookie", cookie.as_str()), FR];

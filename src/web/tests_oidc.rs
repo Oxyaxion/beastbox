@@ -647,26 +647,36 @@ async fn oidc_refusals_and_rate_limit() {
     assert!(sess_cookie(&e, &h).is_none());
     // Unknown account (sub not linked).
     *m.sub.lock().unwrap() = "sub-nobody".to_string();
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
     let (s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
     assert_eq!(s, StatusCode::SEE_OTHER);
     assert!(sess_cookie(&e, &h).is_none());
     *m.sub.lock().unwrap() = "sub-bob".to_string();
     // Provider error at the token endpoint.
     *m.token_error.lock().unwrap() = Some("invalid_grant".into());
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
     let (_s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
     assert!(sess_cookie(&e, &h).is_none());
     *m.token_error.lock().unwrap() = None;
     // Wrong nonce in the id_token.
     *m.bad_nonce.lock().unwrap() = true;
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
     let (_s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
     assert!(sess_cookie(&e, &h).is_none());
     *m.bad_nonce.lock().unwrap() = false;
     // amr without a required method (second_factor = provider, required_amr = ["mfa"]).
     *m.amr.lock().unwrap() = vec!["pwd".into()];
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
     let (_s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
     assert!(sess_cookie(&e, &h).is_none());
     // With the required amr: accepted.
     *m.amr.lock().unwrap() = vec!["pwd".into(), "mfa".into()];
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
     let (s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
     assert_eq!(s, StatusCode::SEE_OTHER);
     assert!(sess_cookie(&e, &h).is_some(), "required amr present but refused");
@@ -811,10 +821,10 @@ async fn oidc_callback_refuses_a_malformed_code() {
     let (port, ca, m) = spawn_mock(d.path(), vec![]).await;
     let o = oidc_runtime(port, &ca, SecondFactor::Beastbox, vec![]);
     let (e, _alpha) = env_oidc(o);
-    let (_s, _h, st) = start(&e, "").await;
-    let p = authorize(&ca, &st).await;
-    let state = &p["state"];
     for bad in ["", "code=", "code=%20", &format!("code={}", "a".repeat(513))] {
+        let (_s, _h, st) = start(&e, "").await; // a new flow per attempt (a used flow is refused)
+        let p = authorize(&ca, &st).await;
+        let state = &p["state"];
         let q = if bad.is_empty() {
             format!("state={state}")
         } else {
@@ -831,11 +841,17 @@ async fn oidc_callback_refuses_a_malformed_code() {
     // An over-long code is refused by our bound, even when the provider would take it: the provider below accepts
     // any code the test hands it, so a session here would mean the bound is not enforced.
     *m.code.lock().unwrap() = "c".repeat(513);
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
+    let state = &p["state"];
     let (s, h, _) = callback(&e, &st.flow, &format!("code={}&state={state}", "c".repeat(513))).await;
     assert_eq!((s, h["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/login"));
     assert!(sess_cookie(&e, &h).is_none(), "an over-long code was accepted");
     *m.code.lock().unwrap() = "test-code".to_string();
     // A well-formed code still completes the flow.
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
+    let state = &p["state"];
     let (s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={state}")).await;
     assert_eq!(s, StatusCode::SEE_OTHER);
     assert!(sess_cookie(&e, &h).is_some());
@@ -858,6 +874,9 @@ async fn oidc_iss_parameter_when_the_provider_echoes_it() {
     assert_eq!((s, h["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/login"));
     assert!(sess_cookie(&e, &h).is_none());
     // Wrong `iss` → refused.
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
+    let state = &p["state"];
     let (_s, h, _) = callback(
         &e,
         &st.flow,
@@ -867,6 +886,9 @@ async fn oidc_iss_parameter_when_the_provider_echoes_it() {
     assert_eq!(h["location"].to_str().unwrap(), "/login");
     assert!(sess_cookie(&e, &h).is_none());
     // The right `iss` → the flow completes.
+    let (_s, _h, st) = start(&e, "").await; // a new flow: one callback each (a used flow is refused)
+    let p = authorize(&ca, &st).await;
+    let state = &p["state"];
     let (s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={state}&iss={issuer}")).await;
     assert_eq!(
         s,
@@ -1194,4 +1216,190 @@ async fn oidc_forged_cookie_does_not_fill_the_tenant_limit() {
         assert_eq!(s, StatusCode::SEE_OTHER, "request {i}");
     }
     assert!(!alpha.failures().human_blocked());
+}
+
+/// A complete sign-in through the provider for bob (bound to `sub-bob`, no password): the session cookie and its CSRF.
+async fn bob_signs_in(e: &Env, ca: &std::path::Path) -> (String, String) {
+    let (_s, _h, st) = start(e, "").await;
+    let p = authorize(ca, &st).await;
+    let (s, h, _) = callback(e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+    let cookie = sess_cookie(e, &h).expect("bob signed in");
+    let alpha = e.state.registry.by_name("alpha").unwrap();
+    let csrf = auth::csrf_token(&alpha, cookie.split_once('=').unwrap().1);
+    (cookie, csrf)
+}
+
+/// A flow signs in once: its cookie and `state` replayed, even within its 10 minutes, are refused (no session),
+/// before any back-channel call.
+#[tokio::test]
+async fn oidc_flow_is_single_use() {
+    let d = tempfile::tempdir().unwrap();
+    let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
+    let o = oidc_runtime(port, &ca, SecondFactor::Provider, vec![]);
+    let (e, _alpha) = env_oidc(o);
+    let (_s, _h, st) = start(&e, "").await;
+    let p = authorize(&ca, &st).await;
+    let q = format!("code=test-code&state={}", p["state"]);
+    let (s, h, _) = callback(&e, &st.flow, &q).await;
+    assert!(s == StatusCode::SEE_OTHER && sess_cookie(&e, &h).is_some());
+    for _ in 0..2 {
+        let (s, h, _) = callback(&e, &st.flow, &q).await;
+        assert_eq!((s, h["location"].to_str().unwrap()), (StatusCode::SEE_OTHER, "/login"));
+        assert!(sess_cookie(&e, &h).is_none(), "a used flow signed in again");
+    }
+    // A new flow still works.
+    let (_, _) = bob_signs_in(&e, &ca).await;
+}
+
+/// An account bound to single sign-on, without a password nor two-step verification: a new app password needs a recent
+/// sign-in (`FRESH_SIGN_IN`); an older session is ended and sent to sign in again, nothing created.
+#[tokio::test]
+async fn sso_account_app_password_needs_a_recent_sign_in() {
+    let d = tempfile::tempdir().unwrap();
+    let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
+    let o = oidc_runtime(port, &ca, SecondFactor::Provider, vec![]);
+    let (e, alpha) = env_oidc(o);
+    let (cookie, csrf) = bob_signs_in(&e, &ca).await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let (_, _, page) = call(&e.app, "GET", "/web/account", &c, "").await;
+    assert!(page.contains("You may be asked to sign in again first.") && !page.contains("id=\"tok-pw\""));
+    let (s, _, _) = call(
+        &e.app,
+        "POST",
+        "/web/account/tokens",
+        &c,
+        &format!("csrf={csrf}&label=x"),
+    )
+    .await;
+    assert_eq!(s, StatusCode::OK);
+    assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
+    // The sign-in grows old: sent to sign in again, the session ended, nothing created.
+    e.state.db.exec_for_test(&format!(
+        "UPDATE session SET created_at = created_at - {} WHERE user_id = 'bob';",
+        crate::web::FRESH_SIGN_IN + 1
+    ));
+    let (s, h, _) = call(&e.app, "POST", "/web/account/qr", &c, &format!("csrf={csrf}")).await;
+    assert_eq!(
+        (s, h["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/login?next=/web/account")
+    );
+    assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
+    assert_eq!(
+        status(&e.app, "GET", "/web/account", &c).await,
+        StatusCode::SEE_OTHER,
+        "session ended"
+    );
+}
+
+/// An account bound to single sign-on with Beastbox's two-step verification and no password: its code is the proof,
+/// for a new app password and to manage two-step verification (no password asked, `SURFACE.md` known limit 5).
+#[tokio::test]
+async fn sso_account_with_totp_proves_with_its_code() {
+    let d = tempfile::tempdir().unwrap();
+    let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
+    let o = oidc_runtime(port, &ca, SecondFactor::Beastbox, vec![]);
+    let (e, alpha) = env_oidc(o);
+    let recovery = auth::tests::enable_totp(&e.state.db, &alpha, "bob");
+    // Provider, then the code page: a full session.
+    let (_s, _h, st) = start(&e, "").await;
+    let p = authorize(&ca, &st).await;
+    let (_, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
+    let pending = sess_cookie(&e, &h).unwrap();
+    let pc = auth::csrf_token(&alpha, pending.split_once('=').unwrap().1);
+    let body = format!("csrf={pc}&code={}", auth::tests::code_at(0));
+    let (_, h, _) = call(&e.app, "POST", "/login/code", &[A, ("cookie", pending.as_str())], &body).await;
+    let cookie = sess_cookie(&e, &h).expect("full session");
+    let csrf = auth::csrf_token(&alpha, cookie.split_once('=').unwrap().1);
+    let c = [A, ("cookie", cookie.as_str())];
+    let (_, _, page) = call(&e.app, "GET", "/web/account", &c, "").await;
+    assert!(
+        page.contains("id=\"tok-code\"") && !page.contains("id=\"tf-pw\""),
+        "proof fields of an SSO account with TOTP"
+    );
+    // App password: the code is required, a wrong one refused, the next one accepted.
+    for extra in ["", "&code=000000"] {
+        let (s, _, _) = call(
+            &e.app,
+            "POST",
+            "/web/account/tokens",
+            &c,
+            &format!("csrf={csrf}&label=x{extra}"),
+        )
+        .await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "{extra}");
+    }
+    let body = format!("csrf={csrf}&label=x&code={}", auth::tests::code_at(1));
+    assert_eq!(
+        call(&e.app, "POST", "/web/account/tokens", &c, &body).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
+    // New recovery codes with a recovery code alone: no password asked of an account that has none.
+    let body = format!("csrf={csrf}&op=codes&code={}", recovery[0]);
+    let (s, _, page) = call(&e.app, "POST", "/web/account/2fa", &c, &body).await;
+    assert!(
+        s == StatusCode::OK && page.contains("the old ones no longer work"),
+        "{s}"
+    );
+}
+
+/// A Login Flow started for `e`: the confirmation page's path.
+async fn new_login_flow(e: &Env) -> String {
+    let (_, _, body) = call(
+        &e.app,
+        "POST",
+        "/index.php/login/v2",
+        &[A, ("x-forwarded-proto", "http")],
+        "",
+    )
+    .await;
+    let f = body
+        .split("/index.php/login/v2/flow/")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    format!("/index.php/login/v2/flow/{f}")
+}
+
+/// Login Flow for an account bound to single sign-on: no password to ask; the code when it has two-step
+/// verification, otherwise a recent sign-in — an older one is ended and sent to sign in again, back to the flow.
+#[tokio::test]
+async fn sso_account_login_flow_proof() {
+    let d = tempfile::tempdir().unwrap();
+    let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
+    let o = oidc_runtime(port, &ca, SecondFactor::Provider, vec![]);
+    let (e, alpha) = env_oidc(o);
+    let (cookie, _) = bob_signs_in(&e, &ca).await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let f = new_login_flow(&e).await;
+    let (_, _, page) = call(&e.app, "GET", &f, &c, "").await;
+    assert!(
+        page.contains("Authorize this client")
+            && !page.contains("name=\"password\"")
+            && !page.contains("name=\"code\"")
+    );
+    assert_eq!(call(&e.app, "POST", &f, &c, "").await.0, StatusCode::OK);
+    assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
+    e.state.db.exec_for_test(&format!(
+        "UPDATE session SET created_at = created_at - {} WHERE user_id = 'bob';",
+        crate::web::FRESH_SIGN_IN + 1
+    ));
+    let g = new_login_flow(&e).await;
+    let (s, h, _) = call(&e.app, "POST", &g, &c, "").await;
+    assert_eq!(
+        (s, h["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, format!("/login?next={g}").as_str())
+    );
+    assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
+    // With two-step verification: the code is asked.
+    auth::tests::enable_totp(&e.state.db, &alpha, "bob");
+    let (cookie, _) = bob_signs_in(&e, &ca).await;
+    let (_, _, page) = call(&e.app, "GET", &g, &[A, ("cookie", cookie.as_str())], "").await;
+    assert!(
+        page.contains("name=\"code\"") && !page.contains("name=\"password\""),
+        "{page}"
+    );
 }

@@ -689,15 +689,25 @@ async fn login_flow_goes_through_the_login() {
         StatusCode::SEE_OTHER
     );
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
-    // Full session (code given): one button, no credentials, one device; a second flow gives a second device.
+    // Full session (code given): the password is asked again; one device; a second flow gives a second device.
     let (cookie, _) = login2(&e, A, "pw-alice", &code_at(0)).await;
     let c = [A, ("cookie", cookie.as_str())];
     let (s, _, page) = call(&e.app, "GET", &f, &c, "").await;
     assert_eq!(s, StatusCode::OK);
-    assert!(page.contains("Authorize this client"), "{page}");
-    assert_eq!(call(&e.app, "POST", &f, &c, "").await.0, StatusCode::OK);
+    assert!(
+        page.contains("Authorize this client") && page.contains("name=\"password\""),
+        "{page}"
+    );
+    assert_eq!(call(&e.app, "POST", &f, &c, "").await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        call(&e.app, "POST", &f, &c, "password=pw-alice").await.0,
+        StatusCode::OK
+    );
     let g = flow().await;
-    assert_eq!(call(&e.app, "POST", &g, &c, "").await.0, StatusCode::OK);
+    assert_eq!(
+        call(&e.app, "POST", &g, &c, "password=pw-alice").await.0,
+        StatusCode::OK
+    );
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 2);
     // A confirmed flow is single use: the same URL answers 404.
     assert_eq!(status(&e.app, "GET", &f, &c).await, StatusCode::NOT_FOUND);

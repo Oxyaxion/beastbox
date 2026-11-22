@@ -113,8 +113,11 @@ async fn refused_writes_change_nothing() {
     allow(&e, "INSERT", "share_event");
 
     refuse(&e, "INSERT", "app_token");
-    assert_eq!(post("/web/account/tokens", "&label=x".into()).await.0, BUSY);
-    assert_eq!(post("/web/account/qr", String::new()).await.0, BUSY);
+    assert_eq!(
+        post("/web/account/tokens", "&label=x&password=pw-alice".into()).await.0,
+        BUSY
+    );
+    assert_eq!(post("/web/account/qr", "&password=pw-alice".into()).await.0, BUSY);
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
 
     refuse(&e, "INSERT", "share");
@@ -460,9 +463,12 @@ async fn login_flow_refusals() {
     let (cookie, _) = login(&e, A, "pw-alice").await;
     let c = [A, proto, ("cookie", cookie.as_str())];
     refuse(&e, "INSERT", "app_token");
-    assert_eq!(call(&e.app, "POST", &form, &c, "").await.0, BUSY);
+    assert_eq!(call(&e.app, "POST", &form, &c, "password=pw-alice").await.0, BUSY);
     allow(&e, "INSERT", "app_token");
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
-    assert_eq!(call(&e.app, "POST", &form, &c, "").await.0, StatusCode::OK);
+    assert_eq!(
+        call(&e.app, "POST", &form, &c, "password=pw-alice").await.0,
+        StatusCode::OK
+    );
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 1);
 }
