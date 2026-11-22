@@ -205,7 +205,9 @@ if [ "$long" = "--long" ]; then
         --data-urlencode "again=$new" http://localhost:18080/web/welcome
     web -o /dev/null --data-urlencode user=carol --data-urlencode "password=$new" http://localhost:18080/login
     c=$(csrf /web/account)
-    token=$(web --data-urlencode "csrf=$c" --data-urlencode label=litmus http://localhost:18080/web/account/tokens |
+    # A new app password asks the password again (`web::Reproof`), as for a person.
+    token=$(web --data-urlencode "csrf=$c" --data-urlencode label=litmus --data-urlencode "password=$new" \
+        http://localhost:18080/web/account/tokens |
         grep -oE '<code>[0-9a-f]{64}</code>' | grep -oE '[0-9a-f]{64}')
     [ -n "$token" ] || { echo "no app password for litmus (first sign-in failed, see target/litmus-server.log)"; exit 1; }
     # No proxy: litmus opens its own connections to the URL's host (expect100), so the host must resolve.
