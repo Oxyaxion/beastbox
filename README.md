@@ -54,5 +54,9 @@ cargo build --release --locked
 ```
 Testing policy, local CI and release: `docs/dev/TESTING.md`. Working rules: `CLAUDE.md`.
 
+## License
+[GNU Affero General Public License](LICENSE), version 3 or (at your option) any later version (`AGPL-3.0-or-later`).
+Running a modified Beastbox as a network service means offering its users the modified source.
+
 ## Acknowledgements
 This software is based in part on the work of the Independent JPEG Group (through `jpeg-encoder`, client thumbnails).
