@@ -41,9 +41,7 @@ new features come last, and many are left out on purpose. The reasoning behind e
   the kernel then refuses it any new path, outgoing connection or process. A flaw in the code stays inside what was
   already open: no other file of the machine, no shell; the identity provider is reached only through a Casper channel
   limited to the configured hosts.
-- **Small and fast** — a single Rust binary with embedded SQLite, nothing alongside (no PHP, no external database, no cache);
-  6 MB of memory at rest, 34 MB under load; 1,000 files listed in 8 ms; search in a few ms over 100,000 files; nothing runs
-  when idle.
+- **Small and fast** — a single Rust binary with embedded SQLite, nothing alongside (no PHP, no external database, no cache).
 - **FreeBSD native** — jails, `rc.d`, `pf`, no portability layer; `unsafe` forbidden outside the filesystem module;
   dependencies justified one by one.
 - **Tested paranoidly** — unit, end-to-end, property, fuzz and mutation testing on every release, published in the
