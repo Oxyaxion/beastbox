@@ -1064,6 +1064,41 @@ pub(crate) mod tests {
         assert!(e.state.db.token_list(&alpha, "alice").unwrap().is_empty());
     }
 
+    /// Two confirmations of one Login Flow at once (double click, two tabs): one app password, handed to the client;
+    /// the other confirmation finds the flow taken and creates nothing.
+    #[tokio::test]
+    async fn login_flow_confirmed_twice_at_once_makes_one_password() {
+        let e = env();
+        let app = &e.app;
+        let proto = ("x-forwarded-proto", "http");
+        let (_, _, body) = call(app, "POST", "/index.php/login/v2", &[A, proto], "").await;
+        let path = grab(&body, "login")
+            .strip_prefix("http://files.alpha.example")
+            .unwrap()
+            .to_owned();
+        let session = alice_session(app).await;
+        let c = [A, ("cookie", session.as_str())];
+        let (a, b) = tokio::join!(
+            call(app, "POST", &path, &c, "password=pw-alice"),
+            call(app, "POST", &path, &c, "password=pw-alice")
+        );
+        let alpha = e.state.registry.by_name("alpha").unwrap();
+        assert_eq!(
+            e.state.db.token_list(&alpha, "alice").unwrap().len(),
+            1,
+            "{} {}",
+            a.0,
+            b.0
+        );
+        assert_eq!(
+            u8::from(a.0 == StatusCode::OK) + u8::from(b.0 == StatusCode::OK),
+            1,
+            "{} {}",
+            a.0,
+            b.0
+        );
+    }
+
     #[tokio::test]
     async fn login_flow_v2() {
         let e = env();

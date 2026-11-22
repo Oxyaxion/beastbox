@@ -48,13 +48,57 @@ pub(crate) fn ip_key(ip: IpAddr) -> IpAddr {
     }
 }
 
+/// Failures counted per name (an account, a link) in their own table, never mixed with addresses: bounded like
+/// `by_ip`; a poisoned lock or a table full of live entries answers blocked (fail closed).
+#[derive(Debug, Default)]
+struct Named(Mutex<HashMap<String, (u32, Instant)>>);
+
+impl Named {
+    fn blocked_at(&self, name: &str, now: Instant, max: u32, window: Duration) -> bool {
+        let Ok(mut m) = self.0.lock() else { return true };
+        match m.get(name) {
+            Some(&(n, t)) if now.duration_since(t) < window => n >= max,
+            Some(_) => {
+                m.remove(name);
+                false
+            }
+            None => {
+                if m.len() >= IP_MAX_ENTRIES {
+                    m.retain(|_, (_, t)| now.duration_since(*t) < window);
+                }
+                m.len() >= IP_MAX_ENTRIES
+            }
+        }
+    }
+
+    /// Counts one failure; the count reached (0 when not recorded: table full).
+    fn record_at(&self, name: &str, now: Instant, window: Duration) -> u32 {
+        let Ok(mut m) = self.0.lock() else { return 0 };
+        if m.len() >= IP_MAX_ENTRIES && !m.contains_key(name) {
+            m.retain(|_, (_, t)| now.duration_since(*t) < window);
+            if m.len() >= IP_MAX_ENTRIES {
+                tracing::warn!("failure table full");
+                return 0;
+            }
+        }
+        let e = m.entry(name.to_owned()).or_insert((0, now));
+        if now.duration_since(e.1) >= window {
+            *e = (0, now);
+        }
+        e.0 += 1;
+        e.0
+    }
+}
+
 /// A tenant's failure counters (per address: `ip_key`). In memory: a restart resets them.
 #[derive(Debug, Default)]
 pub struct Failures {
     by_ip: Mutex<HashMap<IpAddr, (u32, Instant)>>,
     human: Mutex<Option<(u32, Instant)>>,
-    /// Wrong second steps per account (bounded like `by_ip`).
-    code_by_user: Mutex<HashMap<String, (u32, Instant)>>,
+    /// Wrong second steps per account.
+    code_by_user: Named,
+    /// Wrong passwords per share link (its identifier), with the per-IP limits.
+    by_link: Named,
 }
 
 impl Failures {
@@ -109,22 +153,8 @@ impl Failures {
     }
 
     fn code_blocked_at(&self, user: &str, now: Instant) -> bool {
-        let Ok(mut m) = self.code_by_user.lock() else {
-            return true;
-        };
-        match m.get(user) {
-            Some(&(n, t)) if now.duration_since(t) < USER_WINDOW => n >= USER_MAX_CODE_FAILS,
-            Some(_) => {
-                m.remove(user);
-                false
-            }
-            None => {
-                if m.len() >= IP_MAX_ENTRIES {
-                    m.retain(|_, (_, t)| now.duration_since(*t) < USER_WINDOW);
-                }
-                m.len() >= IP_MAX_ENTRIES
-            }
-        }
+        self.code_by_user
+            .blocked_at(user, now, USER_MAX_CODE_FAILS, USER_WINDOW)
     }
 
     pub fn record_code(&self, user: &str) {
@@ -132,22 +162,19 @@ impl Failures {
     }
 
     fn record_code_at(&self, user: &str, now: Instant) {
-        let Ok(mut m) = self.code_by_user.lock() else { return };
-        if m.len() >= IP_MAX_ENTRIES && !m.contains_key(user) {
-            m.retain(|_, (_, t)| now.duration_since(*t) < USER_WINDOW);
-            if m.len() >= IP_MAX_ENTRIES {
-                tracing::warn!("second-step failure table full");
-                return;
-            }
-        }
-        let e = m.entry(user.to_owned()).or_insert((0, now));
-        if now.duration_since(e.1) >= USER_WINDOW {
-            *e = (0, now);
-        }
-        e.0 += 1;
-        if e.0 == USER_MAX_CODE_FAILS {
+        if self.code_by_user.record_at(user, now, USER_WINDOW) == USER_MAX_CODE_FAILS {
             tracing::warn!(user, "second step: too many wrong codes, blocked for 15 minutes");
         }
+    }
+
+    /// Has this share link (its identifier) exhausted its password attempts? Same limits as an address.
+    pub fn link_blocked(&self, share_id: &str) -> bool {
+        self.by_link
+            .blocked_at(share_id, Instant::now(), IP_MAX_FAILS, IP_WINDOW)
+    }
+
+    pub fn record_link(&self, share_id: &str) {
+        self.by_link.record_at(share_id, Instant::now(), IP_WINDOW);
     }
 
     /// Login Flow form: global cap for the tenant (also protects argon2's CPU).
@@ -811,6 +838,21 @@ pub(crate) mod tests {
         assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:1:3::1"));
     }
 
+    /// Share links have their own counters, by their whole identifier: two links that start alike never share one, and
+    /// no link touches an address's counter.
+    #[test]
+    fn link_failures_are_per_link() {
+        let f = Failures::default();
+        let (one, two) = ("abcd1111111111111111111111111111", "abcd2222222222222222222222222222");
+        for _ in 0..IP_MAX_FAILS {
+            assert!(!f.link_blocked(one));
+            f.record_link(one);
+        }
+        assert!(f.link_blocked(one));
+        assert!(!f.link_blocked(two));
+        assert!(!f.ip_blocked("2001:db8::1".parse().unwrap()) && !f.ip_blocked("192.0.2.1".parse().unwrap()));
+    }
+
     /// Failures from one IPv6 /64 add up whatever the address inside it; the next /64 is not touched.
     #[test]
     fn ipv6_failures_count_per_64() {
@@ -904,8 +946,8 @@ pub(crate) mod tests {
         for i in 0..IP_MAX_ENTRIES - 1 {
             f.record_code_at(&format!("u{i}"), t0);
         }
-        let has = |u: &str| f.code_by_user.lock().unwrap().get(u).map(|e| e.0);
-        let len = || f.code_by_user.lock().unwrap().len();
+        let has = |u: &str| f.code_by_user.0.lock().unwrap().get(u).map(|e| e.0);
+        let len = || f.code_by_user.0.lock().unwrap().len();
         f.record_code_at("last", t0); // one place left: taken
         assert_eq!((has("last"), len()), (Some(1), IP_MAX_ENTRIES));
         f.record_code_at("late", t0); // full of live entries

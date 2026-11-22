@@ -1038,6 +1038,84 @@ async fn hidden_files_toggle() {
     assert_eq!(status(app, "GET", "/web/tree/H/", &b).await, StatusCode::SEE_OTHER);
 }
 
+/// A link with the given identifier (as `share::create_link` makes one), password `pw`, on `path`: its public token.
+fn share_with_id(e: &Env, share_id: &str, path: &str, pw: &str) -> String {
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let root = t.data_root().open_subdir(&SafePath::new("alice").unwrap()).unwrap();
+    let id = root.meta(Some(&SafePath::new(path).unwrap())).unwrap().id.unwrap();
+    let token = auth::share_token(&t, share_id);
+    let mac = t.mac(token.as_bytes());
+    let hash = auth::hash_password(pw).unwrap();
+    e.state
+        .db
+        .share_add(
+            &t,
+            &crate::db::NewShare {
+                share_id,
+                user: "alice",
+                mac: &mac,
+                fileid: &id.0,
+                path_hint: path,
+                perms: "read",
+                password_hash: Some(&hash),
+                expires_at: None,
+                max_downloads: None,
+                opts: &Default::default(),
+            },
+        )
+        .unwrap();
+    token
+}
+
+/// Wrong passwords on one link never count against another, whatever their identifiers (regression of the IPv6 /64
+/// grouping: the per-link counter was an address `2001:db8:` + the identifier, cut to its first 4 characters).
+#[tokio::test]
+async fn link_password_limits_are_per_link() {
+    let e = env();
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let root = t.data_root().open_subdir(&SafePath::new("alice").unwrap()).unwrap();
+    for f in ["a.txt", "b.txt"] {
+        root.atomic_write(&SafePath::new(f).unwrap(), &mut &b"x"[..]).unwrap();
+    }
+    let one = share_with_id(&e, "abcd1111111111111111111111111111", "a.txt", "secret-un-1");
+    let two = share_with_id(&e, "abcd2222222222222222222222222222", "b.txt", "secret-deux-2");
+    // 10 wrong passwords on the first link, each from its own address (the per-IP limit stays out of the way).
+    for i in 0..10 {
+        let ip = format!("192.0.2.{}", i + 1);
+        let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", ip.as_str())];
+        let (s, _, _) = call(&e.app, "POST", &format!("/s/{one}"), &h, "password=faux").await;
+        assert_ne!(s, StatusCode::TOO_MANY_REQUESTS, "attempt {i}");
+    }
+    let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "198.51.100.7")];
+    let (s, _, _) = call(&e.app, "POST", &format!("/s/{one}"), &h, "password=secret-un-1").await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS, "the first link is locked");
+    // The second link, same first characters: untouched.
+    let (s, _, page) = call(&e.app, "POST", &format!("/s/{two}"), &h, "password=secret-deux-2").await;
+    assert_ne!(
+        s,
+        StatusCode::TOO_MANY_REQUESTS,
+        "another link locked by the first one's failures: {page:.200}"
+    );
+}
+
+/// A link limited to one download, asked by 16 guests at once: exactly one download is served (one conditional UPDATE
+/// decides, `db::share_hit`; no read-then-write).
+#[tokio::test]
+async fn download_limit_holds_under_concurrency() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let root = t.data_root().open_subdir(&SafePath::new("alice").unwrap()).unwrap();
+    root.atomic_write(&SafePath::new("seul.txt").unwrap(), &mut &b"x"[..])
+        .unwrap();
+    let tok = make_share(&e, &cookie, &csrf, "seul.txt", "&perms=read&max=1").await;
+    let url = format!("/s/{tok}/dl");
+    let all = futures_util::future::join_all((0..16).map(|_| call(app, "GET", &url, &[A], ""))).await;
+    let served = all.iter().filter(|r| r.0 == StatusCode::OK).count();
+    assert_eq!(served, 1, "{:?}", all.iter().map(|r| r.0).collect::<Vec<_>>());
+}
+
 /// Revoking an app password (Account page): only the account's own, only with the form token, and at once — the next
 /// WebDAV or OCS request with it is refused (checked against the database each time, nothing cached).
 #[tokio::test]

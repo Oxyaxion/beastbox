@@ -27,12 +27,17 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
 - **Tenant-wide lockout**: one IPv6 /64 could fill the failure limits of a whole tenant; an OIDC flow cookie could be
   replayed for 10 minutes (one back-channel call each). Failures are now counted per /64 and each flow signs in once.
 - Share link cookies and CSRF tokens are compared in constant time.
+- **Login Flow confirmed twice at once** (double click, two tabs): two app passwords were created, one of them handed
+  to nobody. The first confirmation now takes the flow; the other creates nothing.
 
 ### Tests
 - The reproof rule; app passwords refused without or with a wrong password, the address limit, the other tenant; the
   Login Flow page (origin, warning, escaping, limit); single sign-on accounts (recent sign-in, code, two-step
   verification without a password); an OIDC flow used once; IPv6 per /64 (property test); constant-time equality
-  (property test); revoking an app password: own only, with the form token, refused at once on WebDAV and OCS.
+  (property test); revoking an app password: own only, with the form token, refused at once on WebDAV and OCS;
+  a Login Flow confirmed twice at once gives one app password; wrong passwords on a share link never count against
+  another link; a link limited to one download serves exactly one of 16 simultaneous requests (checked to fail when
+  the limit is not enforced by the database).
 
 ## 0.16.0 — 2026-11-22
 

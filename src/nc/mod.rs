@@ -210,6 +210,8 @@ struct Flow {
     label: String,
     /// (user, app password) once confirmed, until the poll (single use).
     done: Option<(String, String)>,
+    /// A confirmation is creating its app password: another one at the same time creates nothing.
+    claimed: bool,
 }
 
 /// Login Flow state of a tenant (in memory: a restart cancels pending flows).
@@ -242,6 +244,7 @@ pub async fn flow_start(
         ip: ip.0,
         label: client_label(h.get(header::USER_AGENT).and_then(|v| v.to_str().ok()).unwrap_or("")),
         done: None,
+        claimed: false,
     };
     // Flows of this IP still pending (not yet confirmed); a confirmed flow only waits for its poll.
     let added = t.flows().with(|v| {
@@ -502,6 +505,21 @@ pub async fn flow_submit(
     }
     let user = w.u;
     let lmac = t.mac(login.as_bytes());
+    // One confirmation per flow: the first takes it under the lock; another at the same time (double click, two tabs)
+    // finds it taken and creates nothing.
+    let taken = t.flows().with(|v| {
+        v.iter_mut()
+            .find(|f| f.login_mac == lmac && f.done.is_none() && !f.claimed)
+            .map(|f| f.claimed = true)
+            .is_some()
+    });
+    if taken != Some(true) {
+        return page(
+            lang,
+            StatusCode::NOT_FOUND,
+            &format!("<p>{}</p>", lang.t("Unknown or expired login link.")),
+        );
+    }
     let label = t
         .flows()
         .with(|v| v.iter().find(|f| f.login_mac == lmac).map(|f| f.label.clone()))
@@ -513,6 +531,12 @@ pub async fn flow_submit(
     })
     .await;
     let Ok(Ok(secret)) = r else {
+        // Nothing created: the flow can be confirmed again.
+        t.flows().with(|v| {
+            v.iter_mut()
+                .filter(|f| f.login_mac == lmac)
+                .for_each(|f| f.claimed = false)
+        });
         return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
     let name = user.user().to_owned();

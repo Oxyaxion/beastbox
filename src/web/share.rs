@@ -435,23 +435,6 @@ fn join(base: Option<&SafePath>, sub: Option<&SafePath>) -> Option<SafePath> {
     }
 }
 
-/// Rate-limiting key for a link's password attempts (§8: per link and per IP).
-fn link_key(share_id: &str) -> std::net::IpAddr {
-    // Counters are keyed by address; a link gets an IPv6 address reserved for documentation, derived
-    // from its identifier (2001:db8::/32), which cannot match any real client.
-    let mut b = [0u8; 16];
-    b[0] = 0x20;
-    b[1] = 0x01;
-    b[2] = 0x0d;
-    b[3] = 0xb8;
-    for (i, c) in share_id.bytes().take(12).enumerate() {
-        if let Some(x) = b.get_mut(4 + i) {
-            *x = c;
-        }
-    }
-    std::net::IpAddr::from(b)
-}
-
 /// `POST /s/<token>`: password (form, never in the URL). Attempts limited per IP and per link, bounded argon2id.
 pub async fn password(
     State(app): State<Arc<App>>,
@@ -468,8 +451,7 @@ pub async fn password(
     let Some(hash) = o.s.password_hash.clone() else {
         return show(lang, &app, &t, &token, o, (None, 0), &h, String::new()).await;
     };
-    let link = link_key(&o.s.share_id);
-    if t.failures().ip_blocked(ip.0) || t.failures().ip_blocked(link) {
+    if t.failures().ip_blocked(ip.0) || t.failures().link_blocked(&o.s.share_id) {
         return public(too_many());
     }
     let pw = form_field(&body, "password").unwrap_or_default();
@@ -482,7 +464,7 @@ pub async fn password(
     if !ok {
         tracing::warn!(tenant = t.name(), ip = %ip.0, share = o.s.share_id, "share link: wrong password");
         t.failures().record_ip(ip.0);
-        t.failures().record_ip(link);
+        t.failures().record_link(&o.s.share_id);
         note(&app, &t, &o, ShareEventKind::Denied, String::new(), 0).await;
         return show(
             lang,
@@ -1188,7 +1170,6 @@ mod tests {
         // A device name at the length limit: the prefix would exceed 255 bytes, refused.
         let long = format!("con.{}", "x".repeat(251));
         assert_eq!(drop_name(p(&long).as_ref()), None);
-        assert_ne!(link_key("abc"), link_key("abd"));
     }
 
     #[test]
