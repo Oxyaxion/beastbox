@@ -10,6 +10,9 @@ It supports multi-member families, optional TOTP 2FA, but it has not undergone a
 **[Test report](https://modulus.codeberg.page/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
 rules.
 
+**[Releases](https://codeberg.org/Modulus/beastbox/releases)**: FreeBSD 15 amd64 builds with their SHA-256, and the
+release notes.
+
 ## Why
 I wanted my family's files at home, on the FreeBSD server and ZFS pool I already run, without maintaining a full
 Nextcloud (PHP, a database, a long tail of apps). Beastbox keeps files safe and reachable from the Nextcloud apps people
