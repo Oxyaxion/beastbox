@@ -370,7 +370,15 @@ async fn show(
         if !root.meta(d2.as_ref())?.is_dir {
             return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
         }
-        super::list(&root, d2.as_ref(), "name", false, (page, super::PAGE), false, None)
+        super::list(
+            &root,
+            d2.as_ref(),
+            "name",
+            false,
+            (page, super::PAGE),
+            (false, true),
+            None,
+        )
     })
     .await;
     let (entries, pages) = match listed {

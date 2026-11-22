@@ -933,6 +933,110 @@ async fn sort_by_type_in_both_views() {
     assert!(s != StatusCode::OK && !p.contains("a.jpg"));
 }
 
+/// Hidden files (name starting with `.`): left out by default from the list, the grid, the counts and the tree (page,
+/// lazy branches); `?hidden=1` shows them and is remembered (cookie), `?hidden=0` hides them again, any other value is
+/// ignored; an item named by `?voir=` and a hidden folder opened by its address are still shown; the other tenant's
+/// session gets nothing.
+#[tokio::test]
+async fn hidden_files_toggle() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, _) = login(&e, A, "pw-alice").await;
+    let dir = disk(&e).join("H");
+    std::fs::create_dir_all(dir.join(".git/objects")).unwrap();
+    std::fs::create_dir_all(dir.join("sous")).unwrap();
+    std::fs::create_dir_all(disk(&e).join(".cache")).unwrap();
+    for f in [".env", "a.txt", "a."] {
+        std::fs::write(dir.join(f), b"").unwrap();
+    }
+    let c = [A, ("cookie", cookie.as_str())];
+    let shown = |p: &str, n: &str| p.contains(&format!("data-name=\"{n}\""));
+    // Default: hidden, in both views; "a." is not hidden.
+    for view in ["", "?view=grid"] {
+        let (_, h, p) = call(app, "GET", &format!("/web/files/H/{view}"), &c, "").await;
+        assert!(!shown(&p, ".env") && !shown(&p, ".git") && shown(&p, "a.txt") && shown(&p, "a.") && shown(&p, "sous"));
+        assert!(
+            p.contains("3 items") && p.contains("Show hidden files") && !p.contains(">.git</a>"),
+            "{view}"
+        );
+        let set = h
+            .get("set-cookie")
+            .map(|v| v.to_str().unwrap().to_owned())
+            .unwrap_or_default();
+        assert!(p.contains("&#38;hidden=1\"") && !set.contains("bbhidden"), "{view}");
+    }
+    let (_, _, p) = call(app, "GET", "/web/files/", &c, "").await;
+    assert!(!shown(&p, ".cache") && !p.contains(">.cache</a>"));
+    let (_, _, t) = call(app, "GET", "/web/tree/H/", &c, "").await;
+    assert!(t.contains(">sous<") && !t.contains(".git"));
+    // Any other value: ignored, nothing remembered.
+    let (_, h, p) = call(app, "GET", "/web/files/H/?hidden=2", &c, "").await;
+    assert!(!shown(&p, ".env") && !h.contains_key("set-cookie"));
+    // Shown: list, grid, counts, tree; remembered.
+    let (_, h, p) = call(app, "GET", "/web/files/H/?hidden=1", &c, "").await;
+    assert!(shown(&p, ".env") && shown(&p, ".git") && p.contains("5 items") && p.contains(">.git</a>"));
+    assert!(p.contains("Hide hidden files") && p.contains("&#38;hidden=0\""));
+    let set = h["set-cookie"].to_str().unwrap();
+    assert!(set.starts_with("__Host-bbhidden=1;"), "{set}");
+    let remembered = format!("{cookie}; __Host-bbhidden=1");
+    let c2 = [A, ("cookie", remembered.as_str())];
+    let (_, h, p) = call(app, "GET", "/web/files/H/?view=grid", &c2, "").await;
+    assert!(
+        shown(&p, ".env")
+            && shown(&p, ".git")
+            && h.get("set-cookie")
+                .is_none_or(|v| !v.to_str().unwrap().contains("bbhidden"))
+    );
+    let (_, _, p) = call(app, "GET", "/web/files/", &c2, "").await;
+    assert!(shown(&p, ".cache") && p.contains(">.cache</a>"));
+    let (_, _, t) = call(app, "GET", "/web/tree/H/", &c2, "").await;
+    assert!(t.contains(">.git<"));
+    let (_, h, p) = call(app, "GET", "/web/files/H/?hidden=0", &c2, "").await;
+    assert!(!shown(&p, ".env") && h["set-cookie"].to_str().unwrap().starts_with("__Host-bbhidden=0;"));
+    // Hidden, but named by `?voir=` (a search result): shown and marked.
+    let (_, _, p) = call(app, "GET", "/web/files/H/?voir=.env", &c, "").await;
+    assert!(shown(&p, ".env") && p.contains("id=\"vise\""));
+    // A hidden folder opened by its address: its content, and its branch in the tree; its hidden siblings left out.
+    let (s, _, p) = call(app, "GET", "/web/files/H/.git/", &c, "").await;
+    assert_eq!(s, StatusCode::OK);
+    assert!(shown(&p, "objects") && p.contains(">.git</a>") && !p.contains(">.cache</a>"));
+    // Other tenant: alpha's session (with the cookie) opens nothing there.
+    let b = [B, ("cookie", remembered.as_str())];
+    assert_eq!(
+        status(app, "GET", "/web/files/H/?hidden=1", &b).await,
+        StatusCode::SEE_OTHER
+    );
+    assert_eq!(status(app, "GET", "/web/tree/H/", &b).await, StatusCode::SEE_OTHER);
+}
+
+/// Hidden name: starts with `.`, nothing else.
+#[test]
+fn is_hidden_bounds() {
+    use super::is_hidden;
+    assert!(is_hidden(".env") && is_hidden(".") && is_hidden(".."));
+    assert!(!is_hidden("") && !is_hidden("a.") && !is_hidden("a.b") && !is_hidden(" .env"));
+}
+
+proptest::proptest! {
+    /// Hidden files left out: exactly the full listing without the names starting with `.`, same order and counts.
+    #[test]
+    fn hiding_removes_exactly_the_hidden(names in proptest::collection::btree_set("\\.?[a-z]{1,4}", 0..20)) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = crate::fs::Root::open_dir(dir.path()).unwrap();
+        root.ensure_layout().unwrap();
+        for n in &names {
+            root.atomic_write(&SafePath::new(n).unwrap(), &mut &b"x"[..]).unwrap();
+        }
+        let all = super::list(&root, None, "name", false, (0, 100), (false, true), None).unwrap();
+        let some = super::list(&root, None, "name", false, (0, 100), (false, false), None).unwrap();
+        let expected: Vec<&str> = all.entries.iter().map(|e| e.name.as_str()).filter(|n| !n.starts_with('.')).collect();
+        let got: Vec<&str> = some.entries.iter().map(|e| e.name.as_str()).collect();
+        proptest::prop_assert_eq!(&got, &expected);
+        proptest::prop_assert_eq!(some.total, expected.len());
+        proptest::prop_assert_eq!(all.total, names.len());
+    }
+}
+
 /// Type sort key: folders all equal; rank of the kind (first, last known, unknown after it); extension lowercased.
 #[test]
 fn type_key_bounds() {
@@ -4001,11 +4105,11 @@ proptest::proptest! {
             root.atomic_write(&SafePath::new(&format!("f{i:03}")).unwrap(), &mut &b"x"[..]).unwrap();
         }
         let name = format!("f{k:03}");
-        let l = super::list(&root, None, "name", false, (0, per), false, Some(&name)).unwrap();
+        let l = super::list(&root, None, "name", false, (0, per), (false, true), Some(&name)).unwrap();
         proptest::prop_assert_eq!(l.page, k / per);
         proptest::prop_assert!(l.entries.iter().any(|e| e.name == name));
         // Without `find`, or an absent one: the page asked for.
-        let l = super::list(&root, None, "name", false, (1, per), false, Some("absent")).unwrap();
+        let l = super::list(&root, None, "name", false, (1, per), (false, true), Some("absent")).unwrap();
         proptest::prop_assert_eq!(l.page, 1);
     }
 }

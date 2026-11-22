@@ -401,6 +401,8 @@ pub(crate) struct WebUser {
     pub(crate) gate: Option<&'static str>,
     /// Two-step verification on for the account.
     totp: bool,
+    /// Hidden files (name starting with `.`) shown in the web pages: the `hidden` cookie (`1`), hidden by default.
+    pub(crate) show_hidden: bool,
 }
 
 /// Second step of the sign-in (two-step verification).
@@ -436,6 +438,7 @@ pub(crate) async fn session_any(app: &Arc<App>, t: &TenantCtx, h: &HeaderMap) ->
             secret,
             gate: gate(app, t, &row),
             totp: row.totp,
+            show_hidden: cookie(h, &cookie_name(app, "hidden")) == Some("1"),
         }),
         Ok(Err(e)) => {
             tracing::error!(tenant = t.name(), "session illisible : {e}");
@@ -762,6 +765,7 @@ pub(crate) struct Listing {
 /// Reads a folder (at most `LIST_MAX` entries), sorts it (folders first), keeps page `page` of `per` entries, or the
 /// page holding the entry named `find` if there is one.
 /// Sorting by tags: the tags of the whole folder are read (otherwise only those of the page); untagged last.
+/// `show_hidden` false: names starting with `.` are left out (counts and tree included), unless `find` is one.
 /// Blocking.
 pub(crate) fn list(
     root: &crate::fs::Root,
@@ -769,9 +773,10 @@ pub(crate) fn list(
     sort: &str,
     desc: bool,
     (page, per): (usize, usize),
-    labels: bool,
+    (labels, show_hidden): (bool, bool),
     find: Option<&str>,
 ) -> io::Result<Listing> {
+    let show_hidden = show_hidden || find.is_some_and(is_hidden);
     let read_labels = |name: &str| -> (Vec<String>, bool) {
         let p = SafePath::new(&match dir {
             Some(d) => format!("{}/{name}", d.as_str()),
@@ -783,6 +788,9 @@ pub(crate) fn list(
     let mut truncated = false;
     for e in root.read_dir(dir)? {
         let (name, meta) = e?;
+        if !show_hidden && is_hidden(&name) {
+            continue;
+        }
         if v.len() >= LIST_MAX {
             truncated = true;
             break;
@@ -839,6 +847,11 @@ pub(crate) fn list(
         page,
         total,
     })
+}
+
+/// Hidden file or folder (Unix convention): its name starts with `.`.
+pub(crate) fn is_hidden(name: &str) -> bool {
+    name.starts_with('.')
 }
 
 /// What a row is sorted by (folder, favorite); `tags`: lowercase and sorted, empty if not sorting by tags.
@@ -1073,6 +1086,9 @@ struct FilesPage {
     grid: bool,
     view_list: String,
     view_grid: String,
+    /// Link that shows or hides the hidden files, and whether they are shown.
+    hidden_toggle: String,
+    show_hidden: bool,
     notice: String,
     notice_error: bool,
 }
@@ -1146,6 +1162,11 @@ async fn files_at(
         Some(v @ ("grid" | "list")) => (v == "grid", true),
         _ => (cookie(&h, &cookie_name(&app, "view")) == Some("grid"), false),
     };
+    // Hidden files: parameter `hidden` (and then remembered, like the view), otherwise the last choice.
+    let (show_hidden, remember_hidden) = match param(&q, "hidden").as_deref() {
+        Some(v @ ("0" | "1")) => (v == "1", true),
+        _ => (w.show_hidden, false),
+    };
     // `?voir=<name>`: the page holding that item, marked and scrolled to (`#vise`): a folder link from a search result.
     let find = param(&q, "voir");
     let (u, p, find2) = (w.u.clone(), path.clone(), find.clone());
@@ -1155,12 +1176,20 @@ async fn files_at(
         if !root.meta(p.as_ref())?.is_dir {
             return Err(io::Error::from_raw_os_error(libc::ENOTDIR));
         }
-        let mut l = list(&root, p.as_ref(), sort, desc, (page, per), true, find.as_deref())?;
+        let mut l = list(
+            &root,
+            p.as_ref(),
+            sort,
+            desc,
+            (page, per),
+            (true, show_hidden),
+            find.as_deref(),
+        )?;
         let side = side_of(
             lang,
             &u,
             &root,
-            p.as_ref(),
+            (p.as_ref(), show_hidden),
             Some(std::mem::take(&mut l.folders)),
             "files",
         )?;
@@ -1269,6 +1298,12 @@ async fn files_at(
         dir: path.as_ref().map(|p| p.as_str().to_owned()).unwrap_or_default(),
         side,
         grid,
+        hidden_toggle: format!(
+            "?sort={sort}&desc={}{view}{n}&hidden={}",
+            u8::from(desc),
+            u8::from(!show_hidden)
+        ),
+        show_hidden,
         view_list: format!("?sort={sort}&desc={}&view=list{n}", u8::from(desc)),
         view_grid: format!("?sort={sort}&desc={}&view=grid{n}", u8::from(desc)),
         notice,
@@ -1283,6 +1318,13 @@ async fn files_at(
     if remember {
         // Page size choice kept for a year for the other folders.
         if let Ok(v) = set_cookie(&app, &cookie_name(&app, "n"), &per.to_string(), 31_536_000).parse() {
+            r.headers_mut().append(header::SET_COOKIE, v);
+        }
+    }
+    if remember_hidden {
+        // Hidden files shown or not, kept for a year for the other folders.
+        let v = if show_hidden { "1" } else { "0" };
+        if let Ok(v) = set_cookie(&app, &cookie_name(&app, "hidden"), v, 31_536_000).parse() {
             r.headers_mut().append(header::SET_COOKIE, v);
         }
     }
@@ -1478,21 +1520,24 @@ struct Side {
     active: &'static str,
 }
 
-/// Builds the sidebar. `here_kids`: subfolders of `here` if they have already been read (a folder's page).
-/// Blocking. Favorites come from the search index (no extra disk walk).
+/// Builds the sidebar. `here_kids`: subfolders of `here` if they have already been read (a folder's page), hidden
+/// ones already left out unless `show_hidden`. Blocking. Favorites come from the search index (no extra disk walk).
 fn side_of(
     lang: Lang,
     u: &UserCtx,
     root: &crate::fs::Root,
-    here: Option<&SafePath>,
+    (here, show_hidden): (Option<&SafePath>, bool),
     here_kids: Option<Vec<String>>,
     active: &'static str,
 ) -> io::Result<Side> {
     let kids = match here_kids {
         Some(k) => k,
-        None => subfolders(root, here)?.into_iter().map(|n| n.name).collect(),
+        None => subfolders(root, here, show_hidden)?
+            .into_iter()
+            .map(|n| n.name)
+            .collect(),
     };
-    let mut tree = tree_around(lang, root, here, kids)?;
+    let mut tree = tree_around(lang, root, here, kids, show_hidden)?;
     if active != "files" {
         tree.iter_mut().for_each(|n| n.current = false);
     }
@@ -1521,8 +1566,8 @@ fn side_of(
 
 /// Sidebar of a page without a current folder (favorites, links, trash, search).
 async fn side(lang: Lang, w: &WebUser, active: &'static str) -> Side {
-    let u = w.u.clone();
-    match blocking(move || side_of(lang, &u, &u.root()?, None, None, active)).await {
+    let (u, show) = (w.u.clone(), w.show_hidden);
+    match blocking(move || side_of(lang, &u, &u.root()?, (None, show), None, active)).await {
         Ok(Ok(s)) => s,
         _ => Side::default(),
     }
@@ -1588,14 +1633,14 @@ async fn favorites(State(app): State<Arc<App>>, Extension(t): Extension<TenantCt
         Ok(w) => w,
         Err(r) => return r,
     };
-    let u = w.u.clone();
+    let (u, show) = (w.u.clone(), w.show_hidden);
     let found = blocking(move || {
         let root = u.root()?;
         let found = u
             .tenant()
             .index()
             .search(u.user(), &root, &crate::index::Query::favorites())?;
-        Ok::<_, io::Error>((found, side_of(lang, &u, &root, None, None, "favorites")?))
+        Ok::<_, io::Error>((found, side_of(lang, &u, &root, (None, show), None, "favorites")?))
     })
     .await;
     let (mut found, side) = match found {
@@ -1643,11 +1688,12 @@ struct Node {
 
 /// Subfolders of a folder, sorted. shortcut: at most 1,000 subfolders and 10,000 entries read per folder
 /// (beyond that, the sync client); an index (J4) would do better.
-fn subfolders(root: &crate::fs::Root, dir: Option<&SafePath>) -> io::Result<Vec<Node>> {
+/// `show_hidden` false: folders whose name starts with `.` are left out.
+fn subfolders(root: &crate::fs::Root, dir: Option<&SafePath>, show_hidden: bool) -> io::Result<Vec<Node>> {
     let mut v = Vec::new();
     for e in root.read_dir(dir)?.take(LIST_MAX) {
         let (name, meta) = e?;
-        if meta.is_dir {
+        if meta.is_dir && (show_hidden || !is_hidden(&name)) {
             v.push(name);
         }
     }
@@ -1679,6 +1725,7 @@ fn tree_around(
     root: &crate::fs::Root,
     here: Option<&SafePath>,
     mut here_kids: Vec<String>,
+    show_hidden: bool,
 ) -> io::Result<Vec<Node>> {
     let mut out = vec![Node {
         name: lang.t("My files").into(),
@@ -1688,29 +1735,34 @@ fn tree_around(
         current: here.is_none(),
         close: 0,
     }];
-    branch(root, None, here.map_or("", SafePath::as_str), &mut here_kids, &mut out)?;
+    let here = here.map_or("", SafePath::as_str);
+    branch(root, None, (here, show_hidden), &mut here_kids, &mut out)?;
     Ok(out)
 }
 
+/// A hidden folder stays in the tree when it is on the way to the current folder (opened by its address).
 fn branch(
     root: &crate::fs::Root,
     dir: Option<&SafePath>,
-    here: &str,
+    (here, show_hidden): (&str, bool),
     here_kids: &mut Vec<String>,
     out: &mut Vec<Node>,
 ) -> io::Result<()> {
     let kids = if dir.map_or("", SafePath::as_str) == here {
         nodes(dir, std::mem::take(here_kids))
     } else {
-        subfolders(root, dir)?
+        subfolders(root, dir, true)?
     };
     for mut k in kids {
         k.open = here == k.path || here.starts_with(&format!("{}/", k.path));
+        if !show_hidden && !k.open && is_hidden(&k.name) {
+            continue;
+        }
         k.current = here == k.path;
         let next = if k.open { SafePath::new(&k.path).ok() } else { None };
         out.push(k);
         if let Some(p) = next {
-            branch(root, Some(&p), here, here_kids, out)?;
+            branch(root, Some(&p), (here, show_hidden), here_kids, out)?;
         }
     }
     // Closes the list of `dir`'s children (if `dir` has no child, it is the last node).
@@ -1753,8 +1805,8 @@ async fn tree_at(
         Ok(p) => p,
         Err(r) => return r,
     };
-    let u = w.u.clone();
-    match blocking(move || subfolders(&u.root()?, path.as_ref())).await {
+    let (u, show) = (w.u.clone(), w.show_hidden);
+    match blocking(move || subfolders(&u.root()?, path.as_ref(), show)).await {
         Ok(Ok(nodes)) => html(
             StatusCode::OK,
             &TreeFragment {
@@ -2037,7 +2089,7 @@ async fn edit_render(lang: Lang, app: &Arc<App>, w: &WebUser, raw: &str, status:
         Ok(None) => return not_found(lang),
         Err(r) => return r,
     };
-    let (u, p, app2) = (w.u.clone(), path.clone(), app.clone());
+    let (u, p, app2, show) = (w.u.clone(), path.clone(), app.clone(), w.show_hidden);
     let read = blocking(move || -> crate::Result<(Meta, Vec<u8>, Side, bool)> {
         let root = u.root()?;
         let m = root.meta(Some(&p))?;
@@ -2054,7 +2106,7 @@ async fn edit_render(lang: Lang, app: &Arc<App>, w: &WebUser, raw: &str, status:
                 .take(render::PREVIEW_MAX as u64 + 1)
                 .read_to_end(&mut buf)?;
         }
-        let side = side_of(lang, &u, &root, p.split_parent().0.as_ref(), None, "files")?;
+        let side = side_of(lang, &u, &root, (p.split_parent().0.as_ref(), show), None, "files")?;
         Ok((m, buf, side, linked))
     })
     .await;
@@ -2427,7 +2479,7 @@ async fn view_at(
         .as_ref()
         .map_or(lang.t("Files").to_owned(), |p| p.split_parent().1.to_owned());
     let kind = render::kind(&name);
-    let (u, p) = (w.u.clone(), path.clone());
+    let (u, p, show) = (w.u.clone(), path.clone(), w.show_hidden);
     type Read = (
         Meta,
         Vec<String>,
@@ -2457,7 +2509,7 @@ async fn view_at(
             Some(p) if !m.is_dir => p.split_parent().0,
             _ => p.clone(),
         };
-        let side = side_of(lang, &u, &root, here.as_ref(), None, "files")?;
+        let side = side_of(lang, &u, &root, (here.as_ref(), show), None, "files")?;
         Ok((m, tags, fav, (text, edit), neighbours, side))
     })
     .await;

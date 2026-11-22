@@ -620,6 +620,8 @@ const FR: &[(&str, &str)] = &[
     ("Shared links", "Liens partagés"),
     ("Show", "Afficher"),
     ("Sort", "Trier"),
+    ("Show hidden files", "Afficher les fichiers cachés"),
+    ("Hide hidden files", "Masquer les fichiers cachés"),
     ("Sort:", "Trier :"),
     ("Type", "Type"),
     ("Ascending", "Croissant"),
