@@ -619,6 +619,11 @@ const FR: &[(&str, &str)] = &[
     ("Selection", "Sélection"),
     ("Shared links", "Liens partagés"),
     ("Show", "Afficher"),
+    ("Sort", "Trier"),
+    ("Sort:", "Trier :"),
+    ("Type", "Type"),
+    ("Ascending", "Croissant"),
+    ("Descending", "Décroissant"),
     ("Sign in", "Connexion"),
     (
         "Sign in with single sign-on",

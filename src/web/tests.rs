@@ -855,6 +855,120 @@ async fn sort_by_tags() {
     assert_eq!(order(&p), ["sous", "a.txt", "b.txt", "d.txt", "c.txt"]);
 }
 
+/// Sorting by type (Sort menu), in the list and in the grid: folders first, then by kind (image, …, unknown last), then
+/// by extension, then by name; the menu marks the choice and its links keep the view; an unknown key sorts by name; the
+/// other tenant's user of the same name sees nothing of it.
+#[tokio::test]
+async fn sort_by_type_in_both_views() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, _) = login(&e, A, "pw-alice").await;
+    let dir = disk(&e).join("T");
+    std::fs::create_dir_all(dir.join("sous.pdf")).unwrap();
+    for f in ["z.pdf", "a.jpg", "B.PNG", "notes.md", "x.bin", "Readme"] {
+        std::fs::write(dir.join(f), b"").unwrap();
+    }
+    let c = [A, ("cookie", cookie.as_str())];
+    let order = |b: &str| {
+        let mut v: Vec<(usize, &str)> = ["sous.pdf", "z.pdf", "a.jpg", "B.PNG", "notes.md", "x.bin", "Readme"]
+            .into_iter()
+            .map(|n| (b.find(&format!("data-name=\"{n}\"")).unwrap(), n))
+            .collect();
+        v.sort_unstable();
+        v.into_iter().map(|x| x.1).collect::<Vec<_>>()
+    };
+    let asc = ["sous.pdf", "a.jpg", "B.PNG", "z.pdf", "notes.md", "Readme", "x.bin"];
+    let desc = ["sous.pdf", "x.bin", "Readme", "notes.md", "z.pdf", "B.PNG", "a.jpg"];
+    for view in ["", "&view=grid"] {
+        let (_, _, p) = call(app, "GET", &format!("/web/files/T/?sort=type&desc=0{view}"), &c, "").await;
+        assert_eq!(order(&p), asc, "{view}");
+        assert!(
+            p.contains("<strong>Type</strong> <span aria-hidden=\"true\">↑</span>"),
+            "{view}"
+        );
+        let v = view.replace('&', "&#38;");
+        assert!(
+            p.contains(&format!("aria-checked=\"true\" href=\"?sort=type&#38;desc=0{v}\">Type")),
+            "{view}"
+        );
+        assert!(
+            p.contains(&format!(
+                "aria-checked=\"false\" href=\"?sort=name&#38;desc=0{v}\">Name"
+            )),
+            "{view}"
+        );
+        assert!(
+            p.contains(&format!("aria-checked=\"false\" href=\"?sort=type&#38;desc=1{v}\">↓")),
+            "{view}"
+        );
+        let (_, _, p) = call(app, "GET", &format!("/web/files/T/?sort=type&desc=1{view}"), &c, "").await;
+        assert_eq!(order(&p), desc, "{view}");
+        assert!(
+            p.contains("<strong>Type</strong> <span aria-hidden=\"true\">↓</span>"),
+            "{view}"
+        );
+    }
+    // Unknown or hostile key: by name, and the menu says so.
+    let (_, _, p) = call(app, "GET", "/web/files/T/?sort=%3Cscript%3E&desc=0", &c, "").await;
+    assert_eq!(
+        order(&p),
+        ["sous.pdf", "a.jpg", "B.PNG", "notes.md", "Readme", "x.bin", "z.pdf"]
+    );
+    assert!(p.contains("<strong>Name</strong>") && !p.contains("<script>"));
+    // Other tenant: alpha's session is worthless there; beta's alice has no such folder.
+    let b = [B, ("cookie", cookie.as_str())];
+    assert_eq!(
+        status(app, "GET", "/web/files/T/?sort=type", &b,).await,
+        StatusCode::SEE_OTHER
+    );
+    let (bc, _) = login(&e, B, "pw-alice").await;
+    let (s, _, p) = call(
+        app,
+        "GET",
+        "/web/files/T/?sort=type&view=grid",
+        &[B, ("cookie", bc.as_str())],
+        "",
+    )
+    .await;
+    assert!(s != StatusCode::OK && !p.contains("a.jpg"));
+}
+
+/// Type sort key: folders all equal; rank of the kind (first, last known, unknown after it); extension lowercased.
+#[test]
+fn type_key_bounds() {
+    use super::type_key;
+    assert_eq!(type_key("photo.pdf", true), (0, String::new()));
+    assert_eq!(type_key("a.jpg", false), (0, "jpg".into()));
+    assert_eq!(type_key("a.JPG", false), (0, "jpg".into()));
+    assert_eq!(type_key("a.zip", false), (10, "zip".into()));
+    assert_eq!(type_key("a.bin", false), (11, "bin".into()));
+    assert_eq!(type_key("Readme", false), (11, String::new()));
+    assert!(type_key("a.png", false) < type_key("a.pdf", false));
+    assert!(type_key("a.zip", false) < type_key("a.bin", false));
+}
+
+proptest::proptest! {
+    /// The Type order is a total order: antisymmetric, reversed by `desc` except for folders, which always come first.
+    #[test]
+    fn type_order_is_total(
+        a in "[A-Za-z]{0,4}(\\.(jpg|PNG|mp4|pdf|md|txt|csv|json|rs|zip|bin|docx))?", ad: bool,
+        b in "[A-Za-z]{0,4}(\\.(jpg|PNG|mp4|pdf|md|txt|csv|json|rs|zip|bin|docx))?", bd: bool,
+        desc: bool,
+    ) {
+        use super::{SortKey, order};
+        use std::cmp::Ordering::{Greater, Less};
+        let k = |name, is_dir| SortKey { is_dir, name, size: 0, mtime: 0, tags: &[] };
+        let (x, y) = (k(a.as_str(), ad), k(b.as_str(), bd));
+        let o = order("type", desc, &x, &y);
+        proptest::prop_assert_eq!(o, order("type", desc, &y, &x).reverse());
+        if ad != bd {
+            proptest::prop_assert_eq!(o, if ad { Less } else { Greater });
+        } else if !ad && super::type_key(&a, false) != super::type_key(&b, false) {
+            proptest::prop_assert_eq!(o, order("type", !desc, &x, &y).reverse());
+        }
+    }
+}
+
 /// J3b exit criterion: selecting and deleting 50 items in one action, **without JavaScript** (classic
 /// form); bulk move without overwrite; ZIP of a selection; hostile selection refused.
 #[tokio::test]

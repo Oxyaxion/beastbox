@@ -105,13 +105,14 @@ const dnd = (() => {
     old.replaceWith(fresh);
     $$("[data-arbre]", doc).forEach((t, i) => { const o = $$("[data-arbre]")[i]; if (o) o.replaceWith(t); });
     // Links that carry the sort order (view switch, pager, page size) follow it.
-    [".vues", ".pied"].forEach((s) => { const n = $(s, doc), o = $(s); if (n && o) o.replaceWith(n); });
+    [".entete-droite", ".pied"].forEach((s) => { const n = $(s, doc), o = $(s); if (n && o) o.replaceWith(n); });
     wire(); counter();
   }
 
-  // Sorting a column: only the list is replaced (no flash of the whole page, "Recent activity" stays put).
+  // Sorting (column header or the Sort menu, list and grid): only the list is replaced (no flash of the whole page,
+  // "Recent activity" stays put).
   document.addEventListener("click", (e) => {
-    const a = e.target.closest("thead th a");
+    const a = e.target.closest("thead th a, .menu-tri a");
     if (!a || !$("[data-contenu]") || e.button || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
     e.preventDefault();
     history.pushState(null, "", a.href);

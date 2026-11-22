@@ -872,11 +872,12 @@ impl<'a> SortKey<'a> {
     }
 }
 
-/// Sort key (`name`, `size`, `date`, `tags`) from a `sort` parameter; by name by default.
+/// Sort key (`name`, `size`, `date`, `type`, `tags`) from a `sort` parameter; by name by default.
 fn sort_param(q: &Uri) -> &'static str {
     match param(q, "sort").as_deref() {
         Some("size") => "size",
         Some("date") => "date",
+        Some("type") => "type",
         Some("tags") => "tags",
         _ => "name",
     }
@@ -889,6 +890,7 @@ pub(crate) fn order(sort: &str, desc: bool, a: &SortKey<'_>, b: &SortKey<'_>) ->
     let o = match sort {
         "size" => a.size.cmp(&b.size),
         "date" => a.mtime.cmp(&b.mtime),
+        "type" => type_key(a.name, a.is_dir).cmp(&type_key(b.name, b.is_dir)),
         "tags" => a.tags.cmp(b.tags),
         _ => name(),
     };
@@ -902,6 +904,56 @@ pub(crate) fn order(sort: &str, desc: bool, a: &SortKey<'_>, b: &SortKey<'_>) ->
         .then(untagged_last)
         .then(if desc { o.reverse() } else { o })
         .then_with(name)
+}
+
+/// Order of the Type sort: the icons of `render::icon`; anything else last.
+const TYPE_ORDER: [&str; 12] = [
+    "image", "video", "audio", "pdf", "doc", "sheet", "md", "text", "json", "code", "archive", "file",
+];
+
+/// Type sort key: rank of the icon in `TYPE_ORDER`, then the lowercase extension; folders all equal (sorted by name).
+pub(crate) fn type_key(name: &str, is_dir: bool) -> (usize, String) {
+    if is_dir {
+        return (0, String::new());
+    }
+    let icon = render::icon(name, false);
+    let rank = TYPE_ORDER.iter().position(|&t| t == icon).unwrap_or(TYPE_ORDER.len());
+    let ext = name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
+    (rank, ext)
+}
+
+/// Entry of the "Sort" menu (list and grid): a link, checked when it is the current choice.
+struct SortItem {
+    label: &'static str,
+    href: String,
+    on: bool,
+}
+
+/// "Sort" menu: the keys (a new key starts ascending), then both directions of the current key; `extra` as `sort_heads`.
+fn sort_menu(lang: Lang, sort: &str, desc: bool, extra: &str) -> (Vec<SortItem>, Vec<SortItem>) {
+    let keys = [
+        ("name", lang.t("Name")),
+        ("size", lang.t("Size")),
+        ("date", lang.t("Modified")),
+        ("type", lang.t("Type")),
+        ("tags", lang.t("Tags")),
+    ]
+    .into_iter()
+    .map(|(key, label)| SortItem {
+        label,
+        href: format!("?sort={key}&desc=0{extra}"),
+        on: sort == key,
+    })
+    .collect();
+    let dirs = [(false, lang.t("Ascending")), (true, lang.t("Descending"))]
+        .into_iter()
+        .map(|(d, label)| SortItem {
+            label,
+            href: format!("?sort={sort}&desc={}{extra}", u8::from(d)),
+            on: desc == d,
+        })
+        .collect();
+    (keys, dirs)
 }
 
 /// Sortable column header: a link that sorts by this column (or reverses the direction if it already does).
@@ -996,6 +1048,9 @@ struct FilesPage {
     rows: Vec<Row>,
     truncated: bool,
     heads: Vec<SortHead>,
+    /// "Sort" menu: keys, then directions.
+    sort_keys: Vec<SortItem>,
+    sort_dirs: Vec<SortItem>,
     /// Sorted column and direction (kept by the page size choice).
     sort: &'static str,
     desc: bool,
@@ -1177,6 +1232,7 @@ async fn files_at(
     let first = if total == 0 { 0 } else { page * per + 1 };
     let last = (first + rows.len()).saturating_sub(1).max(first);
     let (notice, notice_error) = bulk_notice(lang, &q);
+    let (sort_keys, sort_dirs) = sort_menu(lang, sort, desc, &format!("{view}{n}"));
     let page = FilesPage {
         title: path
             .as_ref()
@@ -1192,6 +1248,8 @@ async fn files_at(
         rows,
         truncated,
         heads: sort_heads(lang, sort, desc, &format!("{view}{n}")),
+        sort_keys,
+        sort_dirs,
         sort,
         desc,
         page_no: page + 1,

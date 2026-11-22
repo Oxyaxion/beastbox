@@ -705,6 +705,16 @@ html.avecjs .nojs { display: none !important; }
 .menu-nouveau button:hover, .menu-nouveau button:focus-visible { background: var(--survol); }
 .menu-nouveau .icone { width: 1.2rem; height: 1.2rem; }
 @supports not (position-area: bottom) { .menu-nouveau { inset: 0; margin: auto; height: fit-content; } }
+/* "Sort" menu (list and grid): same look, opened under its button, aligned right; links with a check on the choice */
+.entete-droite { display: inline-flex; gap: .5rem; align-items: center; }
+.menu-tri { position-area: bottom span-left; min-width: 11rem; }
+.menu-tri a { display: flex; align-items: center; gap: .55rem; padding: .45rem .6rem; border-radius: calc(var(--rayon) - 2px);
+  color: inherit; text-decoration: none; }
+.menu-tri a::before { content: ""; width: 1rem; }
+.menu-tri a[aria-checked="true"] { font-weight: 600; }
+.menu-tri a[aria-checked="true"]::before { content: "✓"; }
+.menu-tri a:hover, .menu-tri a:focus-visible { background: var(--survol); }
+.menu-tri hr { border: 0; border-top: 1px solid var(--bord); margin: .25rem 0; }
 /* Small arrow of a button that opens a menu: down, up while the menu is open */
 .ico-chevron { --i: url(/static/icons/a-chevron.svg); width: .8rem; height: .8rem; color: var(--doux); transform: rotate(90deg);
   transition: transform .12s; }

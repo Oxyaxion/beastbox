@@ -10,9 +10,18 @@
 <div class="contenu">
 <div class="entete">
   {% include "crumbs.html" %}
-  <div class="vues" role="group" aria-label="{{ lang.t("View") }}">
-    <a href="{{ view_list }}"{% if !grid %} aria-current="true"{% endif %}>{{ lang.t("List") }}</a>
-    <a href="{{ view_grid }}"{% if grid %} aria-current="true"{% endif %}>{{ lang.t("Grid") }}</a>
+  <div class="entete-droite">
+    {# Sort menu, for both views (the list's column headers sort too); plain links, works without JavaScript. #}
+    <button type="button" popovertarget="menu-tri" aria-haspopup="menu">{{ lang.t("Sort:") }} <strong>{% for i in sort_keys %}{% if i.on %}{{ i.label }}{% endif %}{% endfor %}</strong> <span aria-hidden="true">{% if desc %}↓{% else %}↑{% endif %}</span> <span class="ico ico-chevron" aria-hidden="true"></span></button>
+    <div id="menu-tri" popover class="menu-nouveau menu-tri" role="menu" aria-label="{{ lang.t("Sort") }}">
+      {% for i in sort_keys %}<a role="menuitemradio" aria-checked="{{ i.on }}" href="{{ i.href }}">{{ i.label }}</a>{% endfor %}
+      <hr>
+      {% for i in sort_dirs %}<a role="menuitemradio" aria-checked="{{ i.on }}" href="{{ i.href }}">{% if loop.first %}↑{% else %}↓{% endif %} {{ i.label }}</a>{% endfor %}
+    </div>
+    <div class="vues" role="group" aria-label="{{ lang.t("View") }}">
+      <a href="{{ view_list }}"{% if !grid %} aria-current="true"{% endif %}>{{ lang.t("List") }}</a>
+      <a href="{{ view_grid }}"{% if grid %} aria-current="true"{% endif %}>{{ lang.t("Grid") }}</a>
+    </div>
   </div>
 </div>
 {% if !notice.is_empty() %}<p class="{% if notice_error %}alerte{% else %}info{% endif %}" role="{% if notice_error %}alert{% else %}status{% endif %}">{{ notice }}</p>{% endif %}
