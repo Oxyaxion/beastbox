@@ -579,6 +579,36 @@ mod tests {
     /// or http only on a test bench with `insecure_cookies`; one of the tenant's hosts; no path), otherwise the
     /// `[tenant.oidc]` one, otherwise `https://` + the first exact host; none possible (wildcards only): an error that
     /// says what to add.
+    /// `base_url` alone: each refusal says why; a port is plain digits only (`u16::from_str` accepts `+443`), at most
+    /// five of them (`000080` parses to 80).
+    #[test]
+    fn base_url_refusals_say_why() {
+        let hosts = ["files.alpha.example".to_string()];
+        let b = |raw: &str, insecure: bool| super::base_url(raw, &hosts, insecure);
+        assert_eq!(
+            b("http://files.alpha.example", false),
+            Err("http only on a test bench (insecure_cookies = true)")
+        );
+        assert_eq!(
+            b("ftp://files.alpha.example", true),
+            Err("https://host[:port] expected")
+        );
+        let only = Err("only scheme://host[:port]: no user, path, query or trailing slash");
+        assert_eq!(b("https://", false), only);
+        assert_eq!(b("https://files.alpha.example/", false), only);
+        for bad in ["+443", "000080", "", "8a", "0", "65536"] {
+            assert_eq!(
+                b(&format!("https://files.alpha.example:{bad}"), false),
+                Err("bad port"),
+                "{bad}"
+            );
+        }
+        assert_eq!(
+            b("https://files.alpha.example:08443", false).as_deref(),
+            Ok("https://files.alpha.example:8443")
+        );
+    }
+
     #[test]
     fn public_base_of_a_tenant() {
         let c = |top: &str, tenant: &str| {

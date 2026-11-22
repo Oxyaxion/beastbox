@@ -3,6 +3,7 @@
 #   src/file.rs: change  # why it is equivalent
 # Anything else that survives stops scripts/check.sh --long (and so a release). Details in VALIDATION.md §2c.
 src/auth/totp.rs: replace | with ^ in base32  # the low 8 bits are zero after << 8: | and ^ give the same value
+src/auth/mod.rs: replace == with != in Failures::record_account_at  # only decides when a log line is written; the lock itself is tested (failures_are_limited_per_ip_and_bounded, failure_windows_expire_exactly)
 src/auth/mod.rs: replace == with != in Failures::record_code_at  # only decides when a log line is written; the block itself is tested (code_failures_are_limited_per_account)
 src/config.rs: replace == with != in Config::load  # the two conditions only choose a startup warning line: no behaviour changes (nothing in a test can observe a log)
 src/db/mod.rs: replace match guard f.code == rusqlite::ErrorCode::ConstraintViolation with true in Db::user_add_oidc  # the guard only picks the message of a failed INSERT, and every failure reachable there is a constraint (unique key, foreign key, check): same text

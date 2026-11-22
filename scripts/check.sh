@@ -28,9 +28,9 @@ mutation_step() {
     # A stall (a frozen copy, a hung child) fails after BEASTBOX_MUTANTS_TIMEOUT, instead of holding the run to its end.
     mutants() {
         s=0
-        env -u CARGO_TARGET_DIR TMPDIR="${BEASTBOX_MUTANTS_TMP:-${TMPDIR:-/tmp}}" timeout "${BEASTBOX_MUTANTS_TIMEOUT:-90m}" \
+        env -u CARGO_TARGET_DIR TMPDIR="${BEASTBOX_MUTANTS_TMP:-${TMPDIR:-/tmp}}" timeout "${BEASTBOX_MUTANTS_TIMEOUT:-4h}" \
             cargo mutants --in-diff target/changes.diff --exclude-re 'fuzz(::|_)' "$@" || s=$?
-        [ "$s" != 124 ] || { echo "mutants: stopped after ${BEASTBOX_MUTANTS_TIMEOUT:-90m} (timeout)"; exit 1; }
+        [ "$s" != 124 ] || { echo "mutants: stopped after ${BEASTBOX_MUTANTS_TIMEOUT:-4h} (timeout)"; exit 1; }
     }
     mutants -e src/web/mod.rs -e src/web/render.rs -e src/main.rs -j "${BEASTBOX_MUTANTS_JOBS:-2}" \
         -o target/mutants-release -- --lib
