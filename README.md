@@ -5,6 +5,8 @@
 Self-hosted file server for **FreeBSD**, compatible with the official **Nextcloud** clients, with a web interface and share
 links. Built for a family or a small association that wants its files at home, on ZFS, without running a PHP stack.
 
+It supports multi-member families, optional TOTP 2FA, but it has not undergone a professional security audit.
+
 **[Test report](https://modulus.codeberg.page/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
 rules.
 
