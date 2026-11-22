@@ -2,8 +2,9 @@
 # A release, measured before it exists: nothing is committed or tagged unless every gate passed.
 #   scripts/release.sh X.Y.Z             from the Linux machine, at the root of the repository, on main, tree clean,
 #                                        with the CHANGELOG.md entry "## X.Y.Z — date" written at the top
-#   scripts/release.sh X.Y.Z --publish   the same, then git push, the test report sent to the bucket and the Gitea
-#                                        release with the FreeBSD archive (scripts/gitea-release.sh)
+#   scripts/release.sh X.Y.Z --publish   the same, then git push, the test report on Codeberg Pages
+#                                        (scripts/report-pages.sh) and the release with the FreeBSD archive
+#                                        (scripts/gitea-release.sh)
 #   scripts/release.sh X.Y.Z --reuse     skip the campaign, reuse the last green one (target/ci, docs/dev/bench-runs.json)
 # Steps: version in Cargo.toml and both Cargo.lock; scripts/vm.sh ci --long in a throwaway FreeBSD VM (tests, coverage
 # floors, long property runs, fuzz, litmus, mutants) which also records the runs and builds the release binary;
@@ -28,7 +29,6 @@ done
 H=${BEASTBOX_HOST:-bench}
 J=${BEASTBOX_JAIL_IP:?set BEASTBOX_JAIL_IP in scripts/local.env}
 TH=${BEASTBOX_TEST_HOST:-files.alpha.test}
-RR=${BEASTBOX_REPORT_REMOTE:-}
 R='~/git/beastbox'
 die() { echo "release: $*" >&2; exit 1; }
 step() { printf '\n== %s\n' "$*"; }
@@ -94,9 +94,8 @@ git log --oneline -1
 if [ "$publish" = "--publish" ]; then
     step "publish"
     git push origin main "v$v"
-    [ -n "$RR" ] || die "set BEASTBOX_REPORT_REMOTE in scripts/local.env"
-    rclone sync target/bench-site "$RR"
+    scripts/report-pages.sh
     scripts/gitea-release.sh "$v"
 else
-    printf '\nNot published. When ready:\n  git push origin main v%s\n  rclone sync target/bench-site %s\n  scripts/gitea-release.sh %s\n' "$v" "${RR:-<report remote>}" "$v"
+    printf '\nNot published. When ready:\n  git push origin main v%s\n  scripts/report-pages.sh\n  scripts/gitea-release.sh %s\n' "$v" "$v"
 fi

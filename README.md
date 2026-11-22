@@ -5,7 +5,7 @@
 Self-hosted file server for **FreeBSD**, compatible with the official **Nextcloud** clients, with a web interface and share
 links. Built for a family or a small association that wants its files at home, on ZFS, without running a PHP stack.
 
-**[Test report](https://aumont.fr/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
+**[Test report](https://modulus.codeberg.page/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
 rules.
 
 ## Why
@@ -36,11 +36,11 @@ When in doubt, a feature is not added. The full rationale: [specification](docs/
 - **FreeBSD native** — jails, `rc.d`, `pf`, no portability layer; `unsafe` forbidden outside the filesystem module;
   dependencies justified one by one.
 - **Tested paranoidly** — unit, end-to-end, property, fuzz and mutation testing on every release, published in the
-  [test report](https://aumont.fr/beastbox/).
+  [test report](https://modulus.codeberg.page/beastbox/).
 
 ## Documentation
 - **Use**: [install](docs/admin/installation.md) · [upgrade](docs/admin/upgrade.md) ·
-  [back up and restore](docs/admin/backup.md) · [release notes](CHANGELOG.md) · [test report](https://aumont.fr/beastbox/)
+  [back up and restore](docs/admin/backup.md) · [release notes](CHANGELOG.md) · [test report](https://modulus.codeberg.page/beastbox/)
 - **Develop**: [specification](docs/dev/beastbox-plan.md) · [testing](docs/dev/TESTING.md) ·
   [attack surface](docs/dev/SURFACE.md) · [validation](docs/dev/VALIDATION.md) · [observed clients](docs/dev/CLIENTS.md) ·
   [dependencies](docs/dev/DEPS.md)
