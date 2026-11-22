@@ -623,6 +623,29 @@ mod tests {
         assert!(user_passwd(&db, &a, "nobody", None, 12, true).is_err());
     }
 
+    /// `user passwd` (`user_reset`): a malformed name or an unknown account is an error and touches nothing; a real
+    /// account loses its password and its sessions; the other tenant's account of the same name keeps its own.
+    #[test]
+    fn user_reset_bounds() {
+        let (reg, _a, _b) = two_tenants();
+        let d = tempfile::tempdir().unwrap();
+        let db = Db::open(&d.path().join("app.db")).unwrap();
+        db.sync_tenants(reg.all()).unwrap();
+        let (a, b) = (reg.by_name("alpha").unwrap(), reg.by_name("beta").unwrap());
+        for t in [&a, &b] {
+            db.user_add(t, "alice", "h", false).unwrap();
+        }
+        db.session_add(&a, "alice", &[1; 32], 600).unwrap();
+        for bad in ["../alice", "Alice", "", "nobody"] {
+            assert!(user_reset(&db, &a, bad).is_err(), "{bad}");
+        }
+        assert_eq!(db.user_password_hash(&a, "alice").unwrap().as_deref(), Some("h"));
+        user_reset(&db, &a, "alice").unwrap();
+        assert_eq!(db.user_password_hash(&a, "alice").unwrap(), None);
+        assert!(db.session_user(&a, &[1; 32]).unwrap().is_none());
+        assert_eq!(db.user_password_hash(&b, "alice").unwrap().as_deref(), Some("h"));
+    }
+
     #[test]
     fn user_dir_must_be_a_dataset() {
         let (reg, a, _b) = two_tenants();

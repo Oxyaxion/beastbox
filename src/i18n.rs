@@ -621,6 +621,10 @@ const FR: &[(&str, &str)] = &[
     ("Show", "Afficher"),
     ("Sort", "Trier"),
     ("Your password", "Votre mot de passe"),
+    (
+        "This form must be sent from this site's own page.",
+        "Ce formulaire doit être envoyé depuis la page de ce site.",
+    ),
     ("Activate your account", "Activer votre compte"),
     ("Activate", "Activer"),
     ("Continue to sign in", "Continuer vers la connexion"),

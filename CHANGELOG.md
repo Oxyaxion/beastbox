@@ -39,6 +39,14 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
 - Share link cookies and CSRF tokens are compared in constant time.
 - **First phone bound by whoever has the password** (two-step verification required): the setup page let the first
   person signing in with the password bind their own phone. A first phone is now bound only from an activation link.
+- **Sign-in closed for everyone by a crowd of failures**: 100 wrong passwords per minute on any names closed the form
+  (and the single sign-on return) for the whole tenant; a full table of addresses refused every new address; a full
+  Login Flow table refused every new client. Now: no tenant-wide limit, but 10 failures per 15 minutes per **existing**
+  account — not on a device that already signed in to it (a mark set after a right password) —; a full address table
+  lets unknown addresses through (the other limits still bound them); a full Login Flow table drops its oldest pending
+  flow.
+- **Login CSRF**: a page on another site could sign the visitor's browser into the attacker's account. A sign-in, an
+  activation or a share link's password posted from another site is now refused (`Sec-Fetch-Site`, `Origin`).
 - **Login Flow confirmed twice at once** (double click, two tabs): two app passwords were created, one of them handed
   to nobody. The first confirmation now takes the flow; the other creates nothing.
 
@@ -53,7 +61,10 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
   submissions at once), dead links all answer the same, a weak or mismatched password or a wrong code keeps the link,
   an account with a password must give it (limited per address), single sign-on accounts bind only a phone, sessions
   end, a disabled account's link waits; the setup page no longer binds a phone; the CLI prints the links with the
-  tenant's address and refuses before creating anything when there is none.
+  tenant's address and refuses before creating anything when there is none; failures on made-up names never close
+  the form; an attacked account is locked but still opens on a known device; forms posted from another site are
+  refused; a full Login Flow table drops its oldest pending flow, never a confirmed one; a full address table no
+  longer locks new addresses out; `user passwd` refuses malformed and unknown names.
 
 ## 0.16.0 — 2026-11-22
 

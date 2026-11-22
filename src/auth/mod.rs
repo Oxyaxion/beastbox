@@ -21,11 +21,26 @@ use std::time::{Duration, Instant};
 /// Authentication failures tolerated per IP and per window (§2, §4); beyond that: 429 until the end of the window.
 const IP_MAX_FAILS: u32 = 10;
 const IP_WINDOW: Duration = Duration::from_secs(5 * 60);
-/// IPs tracked per tenant: bounded (§0.4). Full of active IPs: new IPs refused (fail closed), logged.
+/// Entries tracked per table and tenant: bounded (§0.4). A table of addresses full of live ones lets an address it does
+/// not know through (refusing it would close the door to everyone, M1): what that address may try stays bounded by
+/// the per-account, per-link and per-code limits, which only real names can fill.
 const IP_MAX_ENTRIES: usize = 4096;
-/// Form failures (human password, argon2) tolerated for the whole tenant, all IPs combined.
-const TENANT_MAX_HUMAN_FAILS: u32 = 100;
-const TENANT_WINDOW: Duration = Duration::from_secs(60);
+
+/// Wrong passwords tolerated per existing account and per window, all addresses combined (M2: a guessed account is
+/// locked, never the whole tenant), except on a device the account already signed in from (`known_device`).
+const ACCOUNT_MAX_FAILS: u32 = 10;
+const ACCOUNT_WINDOW: Duration = Duration::from_secs(15 * 60);
+
+/// The known-device mark of an account, set as a cookie after a right password: a device holding it is not stopped by
+/// the account's lock (the owner keeps a door an attacker guessing from elsewhere cannot use). It opens nothing by
+/// itself: the password is still checked. Bound to the tenant key and the account.
+pub fn known_device(t: &TenantCtx, user: &str) -> String {
+    hex(&t.mac(format!("known-device\0{user}").as_bytes()))
+}
+
+pub fn known_device_ok(t: &TenantCtx, user: &str, value: &str) -> bool {
+    constant_time_eq(known_device(t, user).as_bytes(), value.as_bytes())
+}
 
 /// Wrong second steps tolerated per account and per window, all IPs combined: with ±1 step, 5 tries leave a chance of
 /// 1.5e-5 per window to an attacker who has the password.
@@ -94,7 +109,8 @@ impl Named {
 #[derive(Debug, Default)]
 pub struct Failures {
     by_ip: Mutex<HashMap<IpAddr, (u32, Instant)>>,
-    human: Mutex<Option<(u32, Instant)>>,
+    /// Wrong passwords per existing account.
+    by_account: Named,
     /// Wrong second steps per account.
     code_by_user: Named,
     /// Wrong passwords per share link (its identifier), with the per-IP limits.
@@ -102,7 +118,8 @@ pub struct Failures {
 }
 
 impl Failures {
-    /// Has the IP exhausted its attempts? Poisoned lock or full table → yes (fail closed, §0.3).
+    /// Has the IP exhausted its attempts? Poisoned lock → yes (fail closed); a full table → no for an address it does
+    /// not hold (M1, see `IP_MAX_ENTRIES`).
     pub fn ip_blocked(&self, ip: IpAddr) -> bool {
         self.ip_blocked_at(ip, Instant::now())
     }
@@ -117,12 +134,7 @@ impl Failures {
                 m.remove(&ip);
                 false
             }
-            None => {
-                if m.len() >= IP_MAX_ENTRIES {
-                    m.retain(|_, (_, t)| now.duration_since(*t) < IP_WINDOW);
-                }
-                m.len() >= IP_MAX_ENTRIES
-            }
+            None => false,
         }
     }
 
@@ -145,6 +157,30 @@ impl Failures {
             *e = (0, now);
         }
         e.0 += 1;
+    }
+
+    /// Has this account exhausted its password attempts (all addresses combined)?
+    pub fn account_blocked(&self, user: &str) -> bool {
+        self.account_blocked_at(user, Instant::now())
+    }
+
+    fn account_blocked_at(&self, user: &str, now: Instant) -> bool {
+        self.by_account.blocked_at(user, now, ACCOUNT_MAX_FAILS, ACCOUNT_WINDOW)
+    }
+
+    /// Counts a wrong password for an **existing** account (only real names: the table cannot be filled with made-up
+    /// ones).
+    pub fn record_account(&self, user: &str) {
+        self.record_account_at(user, Instant::now());
+    }
+
+    fn record_account_at(&self, user: &str, now: Instant) {
+        if self.by_account.record_at(user, now, ACCOUNT_WINDOW) == ACCOUNT_MAX_FAILS {
+            tracing::warn!(
+                user,
+                "password: too many failures for this account, locked for 15 minutes"
+            );
+        }
     }
 
     /// Has the account exhausted its second-step attempts? Poisoned lock or full table → yes (fail closed).
@@ -175,29 +211,6 @@ impl Failures {
 
     pub fn record_link(&self, share_id: &str) {
         self.by_link.record_at(share_id, Instant::now(), IP_WINDOW);
-    }
-
-    /// Login Flow form: global cap for the tenant (also protects argon2's CPU).
-    pub fn human_blocked(&self) -> bool {
-        self.human_blocked_at(Instant::now())
-    }
-
-    fn human_blocked_at(&self, now: Instant) -> bool {
-        let Ok(g) = self.human.lock() else { return true };
-        matches!(*g, Some((n, t)) if now.duration_since(t) < TENANT_WINDOW && n >= TENANT_MAX_HUMAN_FAILS)
-    }
-
-    pub fn record_human(&self) {
-        self.record_human_at(Instant::now());
-    }
-
-    fn record_human_at(&self, now: Instant) {
-        let Ok(mut g) = self.human.lock() else { return };
-        let e = g.get_or_insert((0, now));
-        if now.duration_since(e.1) >= TENANT_WINDOW {
-            *e = (0, now);
-        }
-        e.0 += 1;
     }
 }
 
@@ -538,6 +551,18 @@ pub fn dummy_hash() -> Result<String> {
 
 /// Checks a human password (argon2id, expensive: the caller bounds the concurrency). Blocking.
 pub fn verify_human(db: &Db, t: &TenantCtx, user: &str, password: &str, dummy: &str) -> Result<Option<UserCtx>> {
+    verify_human_known(db, t, user, password, dummy).map(|(u, _)| u)
+}
+
+/// `verify_human`, and whether `user` names an active account with a password (what a failure may count against:
+/// `Failures::record_account`). Same work either way.
+pub fn verify_human_known(
+    db: &Db,
+    t: &TenantCtx,
+    user: &str,
+    password: &str,
+    dummy: &str,
+) -> Result<(Option<UserCtx>, bool)> {
     let stored = if crate::admin::valid_username(user) {
         db.user_password_hash(t, user)?
     } else {
@@ -547,10 +572,14 @@ pub fn verify_human(db: &Db, t: &TenantCtx, user: &str, password: &str, dummy: &
     let ok = PasswordHash::new(hash)
         .map(|h| Argon2::default().verify_password(password.as_bytes(), &h).is_ok())
         .unwrap_or(false);
-    Ok((ok && stored.is_some()).then(|| UserCtx {
-        tenant: t.clone(),
-        user: user.to_owned(),
-    }))
+    let known = stored.is_some();
+    Ok((
+        (ok && known).then(|| UserCtx {
+            tenant: t.clone(),
+            user: user.to_owned(),
+        }),
+        known,
+    ))
 }
 
 #[cfg(test)]
@@ -637,19 +666,41 @@ pub(crate) mod tests {
         }
         assert!(f.ip_blocked(a));
         assert!(!f.ip_blocked(b)); // another IP is not penalized
-        for _ in 0..TENANT_MAX_HUMAN_FAILS {
-            assert!(!f.human_blocked());
-            f.record_human();
+        // An account: blocked after its failures, all addresses combined; another account is not.
+        for _ in 0..ACCOUNT_MAX_FAILS {
+            assert!(!f.account_blocked("alice"));
+            f.record_account("alice");
         }
-        assert!(f.human_blocked());
-        // Full table: an unknown IP is refused (fail closed), with no growth beyond the bound.
+        assert!(f.account_blocked("alice") && !f.account_blocked("bob"));
+        // Full table of live addresses (M1): it never grows past its bound, an address it holds keeps its block, and
+        // an address it does not know is let through — refusing it would close the door to everyone. The other limits
+        // (per account, per link, per code) still bound what that address may try.
         let g = Failures::default();
+        for _ in 0..IP_MAX_FAILS {
+            g.record_ip(a);
+        }
         for i in 0..IP_MAX_ENTRIES as u32 {
             g.record_ip(IpAddr::from(i.to_be_bytes()));
         }
         g.record_ip("198.51.100.1".parse().unwrap());
         assert_eq!(g.by_ip.lock().unwrap().len(), IP_MAX_ENTRIES);
-        assert!(g.ip_blocked("198.51.100.1".parse().unwrap()));
+        assert!(
+            !g.ip_blocked("198.51.100.1".parse().unwrap()),
+            "a new address is not locked out"
+        );
+        assert!(g.ip_blocked(a), "a blocked address stays blocked");
+    }
+
+    /// The known-device mark (set after a right password): only for its account and its tenant, compared in full.
+    #[test]
+    fn known_device_mark_is_bound() {
+        let (reg, _a, _b) = two_tenants();
+        let (a, b) = (reg.by_name("alpha").unwrap(), reg.by_name("beta").unwrap());
+        let m = known_device(&a, "alice");
+        assert!(known_device_ok(&a, "alice", &m));
+        assert!(!known_device_ok(&a, "bob", &m) && !known_device_ok(&b, "alice", &m));
+        assert!(!known_device_ok(&a, "alice", "") && !known_device_ok(&a, "alice", &m[1..]));
+        assert!(!known_device_ok(&a, "alice", &format!("{m}0")));
     }
 
     /// Written down, as mutation testing showed the tests only used them symbolically: the policy's durations, and the
@@ -708,14 +759,15 @@ pub(crate) mod tests {
         }
         f.record_ip_at(stale, t0 + IP_WINDOW);
         assert_eq!(f.by_ip.lock().unwrap()[&stale].0, 1);
-        // Tenant cap: same rule.
-        for _ in 0..TENANT_MAX_HUMAN_FAILS {
-            f.record_human_at(t0);
+        // An account's failures: same rule over their own window.
+        for _ in 0..ACCOUNT_MAX_FAILS {
+            f.record_account_at("alice", t0);
         }
-        assert!(f.human_blocked_at(t0 + TENANT_WINDOW - Duration::from_millis(1)));
-        assert!(!f.human_blocked_at(t0 + TENANT_WINDOW));
-        f.record_human_at(t0 + TENANT_WINDOW);
-        assert!(!f.human_blocked_at(t0 + TENANT_WINDOW));
+        assert!(f.account_blocked_at("alice", t0 + ACCOUNT_WINDOW - Duration::from_millis(1)));
+        assert!(!f.account_blocked_at("alice", t0 + ACCOUNT_WINDOW));
+        f.record_account_at("alice", t0 + ACCOUNT_WINDOW);
+        assert!(!f.account_blocked_at("alice", t0 + ACCOUNT_WINDOW));
+        assert_eq!((ACCOUNT_MAX_FAILS, ACCOUNT_WINDOW.as_secs()), (10, 15 * 60));
         // Full table of old entries: a new IP gets in once they have expired.
         let g = Failures::default();
         for i in 0..IP_MAX_ENTRIES as u32 {

@@ -440,11 +440,15 @@ pub async fn password(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
     Extension(ip): Extension<ClientIp>,
+    Extension(origin): Extension<crate::http::Base>,
     Path(token): Path<String>,
     h: HeaderMap,
     body: Bytes,
 ) -> Response {
     let lang = super::lang(&app, &h);
+    if super::from_another_site(&h, &origin) {
+        return public(super::other_site_refused(lang));
+    }
     let Some(o) = open(&app, &t, &token).await.filter(|o| !o.exhausted) else {
         return gone(lang);
     };

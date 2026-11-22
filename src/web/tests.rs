@@ -1038,6 +1038,143 @@ async fn hidden_files_toggle() {
     assert_eq!(status(app, "GET", "/web/tree/H/", &b).await, StatusCode::SEE_OTHER);
 }
 
+/// A wrong password from address `ip` for `user` (through the trusted proxy): the status.
+async fn wrong_login(e: &Env, user: &str, ip: &str) -> StatusCode {
+    let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", ip)];
+    call(
+        &e.app,
+        "POST",
+        "/login",
+        &h,
+        &format!("user={user}&password=faux-faux-faux"),
+    )
+    .await
+    .0
+}
+
+/// M2: failures for names that are no accounts, from many addresses, never close the sign-in form for the others (no
+/// tenant-wide lockout); only real accounts are counted, so they cannot fill the per-account table either.
+#[tokio::test]
+async fn failures_elsewhere_never_close_the_form() {
+    let e = env();
+    for i in 0..150u32 {
+        let s = wrong_login(
+            &e,
+            &format!("nobody{i}"),
+            &format!("198.51.{}.{}", i / 250, i % 250 + 1),
+        )
+        .await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "attempt {i}");
+    }
+    let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "203.0.113.5")];
+    let (s, _, _) = call(&e.app, "POST", "/login", &h, "user=alice&password=pw-alice").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+}
+
+/// M2: an account guessed at from many addresses is locked (10 failures in 15 minutes) — but not on a device it has
+/// already signed in from (its known-device mark): the owner keeps the door the attacker cannot use. The mark opens
+/// nothing by itself (a wrong password stays wrong) and only for its account; the other tenant's alice is untouched.
+#[tokio::test]
+async fn an_attacked_account_still_opens_on_a_known_device() {
+    let e = env();
+    let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "203.0.113.1")];
+    let (s, hd, _) = call(&e.app, "POST", "/login", &h, "user=alice&password=pw-alice").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+    let mark = hd
+        .get_all("set-cookie")
+        .iter()
+        .map(|v| v.to_str().unwrap().split(';').next().unwrap().to_owned())
+        .find(|c| c.starts_with(&crate::web::cookie_name(&e.state, "known")))
+        .expect("the known-device mark is set after a right password");
+    for i in 0..10u32 {
+        assert_eq!(
+            wrong_login(&e, "alice", &format!("192.0.2.{}", i + 1)).await,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    // A new device, the right password: locked.
+    let fresh = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "203.0.113.9")];
+    let (s, _, _) = call(&e.app, "POST", "/login", &fresh, "user=alice&password=pw-alice").await;
+    assert_eq!(s, StatusCode::TOO_MANY_REQUESTS);
+    // The known device: opens with the right password, not with a wrong one.
+    let known = [
+        A,
+        ("x-forwarded-proto", "http"),
+        ("x-real-ip", "203.0.113.10"),
+        ("cookie", mark.as_str()),
+    ];
+    let (s, _, _) = call(&e.app, "POST", "/login", &known, "user=alice&password=faux-faux-faux").await;
+    assert_eq!(s, StatusCode::UNAUTHORIZED);
+    let (s, _, _) = call(&e.app, "POST", "/login", &known, "user=alice&password=pw-alice").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+    // The other tenant's alice: untouched.
+    let (s, _, _) = call(&e.app, "POST", "/login", &[B], "user=alice&password=pw-alice").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+}
+
+/// F1: a sign-in posted from another site (a forged form signing the victim's browser into the attacker's account) is
+/// refused — by `Sec-Fetch-Site` and `Origin`, which browsers send; the same for the other forms without a session
+/// (an activation link, a share link's password). Same-origin posts and clients that send neither still work.
+#[tokio::test]
+async fn forms_without_a_session_refuse_other_sites() {
+    let e = env();
+    let body = "user=alice&password=pw-alice";
+    let p = ("x-forwarded-proto", "http");
+    for (what, hdr) in [
+        ("cross-site", ("sec-fetch-site", "cross-site")),
+        ("same-site", ("sec-fetch-site", "same-site")),
+        ("evil origin", ("origin", "https://evil.example")),
+        ("null origin", ("origin", "null")),
+    ] {
+        let (s, h, _) = call(&e.app, "POST", "/login", &[A, p, hdr], body).await;
+        assert!(
+            s == StatusCode::FORBIDDEN && !h.contains_key("set-cookie"),
+            "{what}: {s}"
+        );
+    }
+    for hdr in [
+        ("sec-fetch-site", "same-origin"),
+        ("sec-fetch-site", "none"),
+        ("origin", "http://files.alpha.example"),
+    ] {
+        assert_eq!(
+            call(&e.app, "POST", "/login", &[A, p, hdr], body).await.0,
+            StatusCode::SEE_OTHER,
+            "{hdr:?}"
+        );
+    }
+    assert_eq!(
+        call(&e.app, "POST", "/login", &[A, p], body).await.0,
+        StatusCode::SEE_OTHER
+    );
+    // An activation link and a share link's password: the same rule.
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let tok = auth::activation_issue(&e.state.db, &t, "alice", crate::db::now_secs()).unwrap();
+    let x = ("sec-fetch-site", "cross-site");
+    let (s, _, _) = call(
+        &e.app,
+        "POST",
+        &format!("/activate/{tok}"),
+        &[A, p, x],
+        "current=pw-alice",
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    let root = t.data_root().open_subdir(&SafePath::new("alice").unwrap()).unwrap();
+    root.atomic_write(&SafePath::new("p.txt").unwrap(), &mut &b"x"[..])
+        .unwrap();
+    let link = share_with_id(&e, "feed1111111111111111111111111111", "p.txt", "secret-du-lien-1");
+    let (s, _, _) = call(
+        &e.app,
+        "POST",
+        &format!("/s/{link}"),
+        &[A, p, x],
+        "password=secret-du-lien-1",
+    )
+    .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+}
+
 /// A link with the given identifier (as `share::create_link` makes one), password `pw`, on `path`: its public token.
 fn share_with_id(e: &Env, share_id: &str, path: &str, pw: &str) -> String {
     let t = e.state.registry.by_name("alpha").unwrap();

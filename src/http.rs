@@ -1000,18 +1000,7 @@ pub(crate) mod tests {
         assert_eq!(start(ip7()).await.0, StatusCode::OK);
         assert_eq!(start(ip7()).await.0, StatusCode::TOO_MANY_REQUESTS);
 
-        // Tenant cap (64 flows): 503 for everyone, even a new IP.
-        let mut n = 6; // 5 from 192.0.2.7 (one of them confirmed) and 1 from 192.0.2.8
-        'fill: for a in 10..=40 {
-            for _ in 0..4 {
-                if n == 64 {
-                    break 'fill;
-                }
-                assert_eq!(start(format!("198.51.100.{a}")).await.0, StatusCode::OK);
-                n += 1;
-            }
-        }
-        assert_eq!(start("203.0.113.1".into()).await.0, StatusCode::SERVICE_UNAVAILABLE);
+        // A full tenant table no longer refuses a new client (M5): `login_flows_full_drop_the_oldest_pending`.
     }
 
     /// A field of the Login Flow JSON (`"key":"value"`).
@@ -1062,6 +1051,60 @@ pub(crate) mod tests {
         );
         let alpha = e.state.registry.by_name("alpha").unwrap();
         assert!(e.state.db.token_list(&alpha, "alice").unwrap().is_empty());
+    }
+
+    /// M5: a full table of pending Login Flows (many addresses opening flows and leaving them) does not refuse the next
+    /// client: the oldest pending flow is dropped. A flow already confirmed (waiting for its client's poll) is never the
+    /// one dropped.
+    #[tokio::test]
+    async fn login_flows_full_drop_the_oldest_pending() {
+        let e = env();
+        let app = &e.app;
+        let proto = ("x-forwarded-proto", "http");
+        let start = |ip: String| async move {
+            let (s, _, body) = call(
+                app,
+                "POST",
+                "/index.php/login/v2",
+                &[A, proto, ("x-real-ip", ip.as_str())],
+                "",
+            )
+            .await;
+            (s, body)
+        };
+        // A flow confirmed first: it must survive.
+        let (_, body) = start("203.0.113.1".into()).await;
+        let path = grab(&body, "login")
+            .strip_prefix("http://files.alpha.example")
+            .unwrap()
+            .to_owned();
+        let poll = format!("token={}", grab(&body, "token"));
+        let session = alice_session(app).await;
+        let c = [A, ("cookie", session.as_str())];
+        assert_eq!(
+            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            StatusCode::OK
+        );
+        // Then the table filled with pending flows, one address each.
+        let (_, oldest) = start("198.51.100.1".into()).await;
+        let oldest = grab(&oldest, "login")
+            .strip_prefix("http://files.alpha.example")
+            .unwrap()
+            .to_owned();
+        for i in 0..crate::nc::MAX_FLOWS as u32 {
+            let (s, _) = start(format!("2001:db8:{i:x}::1")).await;
+            assert_eq!(s, StatusCode::OK, "flow {i}: a new client is never refused");
+        }
+        assert_eq!(
+            status(app, "GET", &oldest, &[A]).await,
+            StatusCode::NOT_FOUND,
+            "the oldest pending one dropped"
+        );
+        let (s, _, body) = call(app, "POST", "/index.php/login/v2/poll", &[A, proto], &poll).await;
+        assert!(
+            s == StatusCode::OK && body.contains("appPassword"),
+            "the confirmed one kept"
+        );
     }
 
     /// Two confirmations of one Login Flow at once (double click, two tabs): one app password, handed to the client;

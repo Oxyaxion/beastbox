@@ -4,7 +4,7 @@
 //! channel (`auth::oidc_net`), the `id_token` checked (`auth::oidc::check_id_token`), the account found by
 //! its linked identity, then a session and a redirect to the flow's `next` (the `after_login` allowlist).
 //!
-//! The callback inherits the login's rate limit (§0.4): `ip_blocked`/`human_blocked` before anything, and
+//! The callback inherits the login's rate limit (§0.4): `ip_blocked` before anything, and
 //! every refusal recorded. `redirect_uri` is built from the configuration (`OidcRuntime::base`), never from
 //! the request's `Host` header. With `second_factor = "provider"`, an `amr` of `required_amr` is required in
 //! the `id_token` and the account's own TOTP is not asked; with `"beastbox"`, the account's TOTP gate applies
@@ -38,16 +38,12 @@ fn unavailable() -> Response {
     (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, "30")]).into_response()
 }
 
-/// A refusal: logged with its reason, answered without any detail (a redirect to the login page), and
-/// counted in the tenant's failure limits (the login's rate limit, §0.4). A missing or forged flow cookie or `state`
-/// costs the sender nothing and guesses nothing (both are keyed): it counts against its address only, never in the
-/// tenant-wide limit, which a few addresses could otherwise fill to close every sign-in.
+/// A refusal: logged with its reason, answered without any detail (a redirect to the login page), and counted against
+/// the sender's address (the login's rate limit, §0.4) — never in a tenant-wide limit, which a few addresses could fill
+/// to close every sign-in (M2).
 fn refuse(t: &TenantCtx, ip: ClientIp, why: oidc::Refusal) -> Response {
     tracing::warn!(tenant = t.name(), ip = %ip.0, "oidc callback refused: {why}");
     t.failures().record_ip(ip.0);
-    if !matches!(why, oidc::Refusal::Cookie | oidc::Refusal::State) {
-        t.failures().record_human();
-    }
     see_other("/login")
 }
 
@@ -128,7 +124,7 @@ pub async fn callback(
     let Some(o) = t.oidc() else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    if t.failures().ip_blocked(ip.0) || t.failures().human_blocked() {
+    if t.failures().ip_blocked(ip.0) {
         return too_many();
     }
     let now = crate::db::now_secs();

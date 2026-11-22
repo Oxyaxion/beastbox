@@ -144,6 +144,9 @@ pub(super) async fn submit(
     body: Bytes,
 ) -> Response {
     let lang = lang(&app, &h);
+    if super::from_another_site(&h, &origin) {
+        return private(super::other_site_refused(lang));
+    }
     let Some(row) = find(&app, &t, &token).await else {
         return dead(lang);
     };

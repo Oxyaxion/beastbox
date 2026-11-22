@@ -595,6 +595,29 @@ pub(crate) async fn sign_in_again(app: &Arc<App>, w: &WebUser, next: &str) -> Re
         .into_response()
 }
 
+/// A form posted from another site (F1: a forged sign-in into the attacker's account, or a forged use of a link):
+/// `Sec-Fetch-Site` other than `same-origin`/`none`, or an `Origin` that is not this site's (`null` included).
+/// Browsers send them; a client that sends neither (CLI, sync tools) is not a browser to protect, it is let through.
+pub(crate) fn from_another_site(h: &HeaderMap, base: &Base) -> bool {
+    let site = h.get("sec-fetch-site").and_then(|v| v.to_str().ok());
+    if site.is_some_and(|s| s != "same-origin" && s != "none") {
+        return true;
+    }
+    h.get(header::ORIGIN)
+        .is_some_and(|o| o.to_str().ok() != Some(base.0.as_str()))
+}
+
+/// Refusal of a form posted from another site: nothing done, nothing set.
+pub(crate) fn other_site_refused(lang: Lang) -> Response {
+    message(
+        lang,
+        StatusCode::FORBIDDEN,
+        lang.t("Refused"),
+        lang.t("This form must be sent from this site's own page."),
+        "/login",
+    )
+}
+
 /// The CSRF token received (form field or header) is the session's, compared in constant time.
 pub(crate) fn csrf_ok(given: Option<&str>, expected: &str) -> bool {
     given.is_some_and(|g| auth::constant_time_eq(g.as_bytes(), expected.as_bytes()))
@@ -733,10 +756,14 @@ async fn login(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
     Extension(ip): Extension<ClientIp>,
+    Extension(origin): Extension<Base>,
     h: HeaderMap,
     body: Bytes,
 ) -> Response {
     let lang = lang(&app, &h);
+    if from_another_site(&h, &origin) {
+        return other_site_refused(lang);
+    }
     let next = after_login(form_field(&body, "next"));
     if !t.password_login_allowed() {
         // Nothing to guess here: no argon2, no failure counted, the provider is the way in.
@@ -763,7 +790,9 @@ async fn login(
             },
         );
     };
-    if t.failures().ip_blocked(ip.0) || t.failures().human_blocked() {
+    // Per address, then per account — unless this device already signed in to it (M2: the owner keeps a door).
+    let known = cookie(&h, &cookie_name(&app, "known")).is_some_and(|v| auth::known_device_ok(&t, &user, v));
+    if t.failures().ip_blocked(ip.0) || (t.failures().account_blocked(&user) && !known) {
         return too_many();
     }
     let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await else {
@@ -771,34 +800,46 @@ async fn login(
     };
     // With two-step verification, the password opens only a waiting session (5 minutes) for the code page.
     let r = blocking({
-        let (app, t) = (app.clone(), t.clone());
-        move || -> crate::Result<Option<(String, bool)>> {
-            let Some(u) = auth::verify_human(&app.db, &t, &user, &pw, &app.dummy_hash)? else {
-                return Ok(None);
-            };
+        let (app, t, user) = (app.clone(), t.clone(), user.clone());
+        move || -> crate::Result<Result<(String, bool), bool>> {
+            let (u, exists) = auth::verify_human_known(&app.db, &t, &user, &pw, &app.dummy_hash)?;
+            let Some(u) = u else { return Ok(Err(exists)) };
             if matches!(app.db.totp_get(&t, u.user())?, Some((Some(_), _))) {
-                return Ok(Some((auth::new_pending_session(&app.db, &u)?, true)));
+                return Ok(Ok((auth::new_pending_session(&app.db, &u)?, true)));
             }
-            Ok(Some((auth::new_session(&app.db, &u)?, false)))
+            Ok(Ok((auth::new_session(&app.db, &u)?, false)))
         }
     })
     .await;
     match r {
-        Ok(Ok(Some((secret, pending)))) => {
+        Ok(Ok(Ok((secret, pending)))) => {
             let ttl = if pending { auth::PENDING_TTL } else { auth::SESSION_TTL };
             let c = set_cookie(&app, &cookie_name(&app, "sess"), &secret, ttl);
+            // The device is known to this account from now on (a year).
+            let k = set_cookie(
+                &app,
+                &cookie_name(&app, "known"),
+                &auth::known_device(&t, &user),
+                31_536_000,
+            );
             let to = match (pending, next.is_empty()) {
                 (true, true) => LOGIN_CODE.to_owned(),
                 (true, false) => format!("{LOGIN_CODE}?next={next}"),
                 (false, true) => "/web/files/".to_owned(),
                 (false, false) => next,
             };
-            (StatusCode::SEE_OTHER, [(header::LOCATION, to), (header::SET_COOKIE, c)]).into_response()
+            let mut r = (StatusCode::SEE_OTHER, [(header::LOCATION, to), (header::SET_COOKIE, c)]).into_response();
+            if let Ok(v) = k.parse() {
+                r.headers_mut().append(header::SET_COOKIE, v);
+            }
+            r
         }
-        Ok(Ok(None)) => {
+        Ok(Ok(Err(exists))) => {
             tracing::warn!(tenant = t.name(), ip = %ip.0, "web login: failure");
             t.failures().record_ip(ip.0);
-            t.failures().record_human();
+            if exists {
+                t.failures().record_account(&user);
+            }
             html(
                 StatusCode::UNAUTHORIZED,
                 &LoginPage {

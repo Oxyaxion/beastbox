@@ -193,10 +193,10 @@ pub async fn ocs_unknown(Extension(t): Extension<TenantCtx>, uri: Uri) -> Respon
 // ---------------------------------------------------------------- Login Flow v2
 
 const FLOW_TTL: Duration = Duration::from_secs(20 * 60);
-/// Pending flows per tenant: bounded (§0.4), 503 beyond.
-const MAX_FLOWS: usize = 64;
-/// Pending flows per IP, 429 beyond: without this limit, 64 anonymous requests would fill the tenant's table and
-/// block every new client login for `FLOW_TTL`.
+/// Flows per tenant: bounded (§0.4); full, the oldest one still waiting for its confirmation makes room (503 only when
+/// every flow is confirmed and waits for its poll).
+pub(crate) const MAX_FLOWS: usize = 256;
+/// Pending flows per address (an IPv6 /64), 429 beyond: one address cannot churn the tenant's table by itself.
 const FLOWS_PER_IP: usize = 4;
 
 #[derive(Debug)]
@@ -256,8 +256,13 @@ pub async fn flow_start(
         {
             return Err(StatusCode::TOO_MANY_REQUESTS);
         }
+        // Full (M5): the oldest flow still waiting for its confirmation makes room — never one already confirmed (its
+        // client is about to poll), so a crowd of abandoned flows cannot keep a new client out.
         if v.len() >= MAX_FLOWS {
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
+            let Some(oldest) = v.iter().position(|f| f.done.is_none() && !f.claimed) else {
+                return Err(StatusCode::SERVICE_UNAVAILABLE);
+            };
+            v.remove(oldest);
         }
         v.push(flow);
         Ok(())

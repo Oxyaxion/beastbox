@@ -27,7 +27,7 @@ before any routing) → explicit route, otherwise 404; unlisted method 405.
 |---|---|---|---|
 | (a) public | GET | `/status.php` | none |
 | (a) public | GET | `/index.php/204` | none |
-| (a) public | POST | `/index.php/login/v2` | none (≤ 64 pending flows per tenant, otherwise 503) |
+| (a) public | POST | `/index.php/login/v2` | none (≤ 4 pending flows per address, 429 beyond; ≤ 256 per tenant: full, the oldest pending flow makes room, a confirmed one never) |
 | (a) public | POST | `/index.php/login/v2/poll` | poll token (256 bits) |
 | (a) public | GET, POST | `/index.php/login/v2/flow/{token}` | token (256 bits). No web session: 303 to `/login?next=/index.php/login/v2/flow/{token}` (that target is in the login allowlist), so the password, single sign-on, the second step and the other gates happen on the login page; with a session whose gates are passed, the page shows who asks (the client's label from its User-Agent, escaped, and the address that opened the flow) with a warning against links received from someone else, and the POST creates the app password only after the **reproof** (`web::Reproof`: the password when the account has one, otherwise its code, otherwise a sign-in under 5 minutes — an older session is ended and sent to sign in again); wrong ones count like a sign-in's. A session still behind a gate is sent to it |
 | (a) public | GET | `/ocs/v{1,2}.php/cloud/capabilities` | none |
@@ -49,7 +49,7 @@ before any routing) → explicit route, otherwise 404; unlisted method 405.
 | Group | Method | Route | Auth |
 |---|---|---|---|
 | (a) public | GET | `/`, `/login` (no password form on a tenant with `[tenant.oidc]` unless `password_login = true`; its POST is then 403); `/static/app.css`, `/static/app.js`, `/static/theme.js`, `/static/icons/{name}.svg` (closed list, compiled into the binary) | none |
-| (a) public | POST | `/login` | refused (403) on a tenant that signs in through its provider, unless `password_login = true`. Otherwise: human password (bounded argon2id, 10 failures / IP / 5 min — an IPv6 address counted by its /64, `auth::ip_key` —, 100 / tenant / min); two-step verification on: opens only a waiting session (5 min) → `/login/code` |
+| (a) public | POST | `/login` | refused (403) on a tenant that signs in through its provider, unless `password_login = true`. Otherwise: human password (bounded argon2id, 10 failures / IP / 5 min — an IPv6 address counted by its /64, `auth::ip_key` —, 10 / existing account / 15 min all addresses, except on a device that already signed in to it: the `__Host-bbknown` mark, an HMAC of the account; no tenant-wide limit); refused (403) when posted from another site (`Sec-Fetch-Site`, `Origin`: `web::from_another_site`, also on `/activate` and a link's password); two-step verification on: opens only a waiting session (5 min) → `/login/code` |
 | (a) public | GET | `/login/oidc?next=…`, `/login/oidc/callback?code&state` | none; only when the tenant has `[tenant.oidc]` (otherwise 404). Start: a MAC'd stateless flow cookie (600 s) + 303 to the provider's authorization endpoint (`redirect_uri` built from the configured host, never the `Host` header). Start on another host of the tenant: 303 to the same route on the base host first (the `__Host-` flow cookie must live where the provider returns). Callback: inherits `/login`'s rate limit (429, refusals recorded per IP and per tenant; a missing or forged flow cookie or `state` per IP only); a failed discovery answers 503 for 30 s without a new fetch, flow cookie + `state` (constant time) + `iss` when advertised, **each flow once** (`oidc::UsedFlows`: a replayed cookie is refused before any back-channel call), code exchanged over the back channel (Casper `system.net`, allowlisted; ADR-5/ADR-6), `id_token` checks, `required_amr` when `second_factor = "provider"`, account by `(issuer, sub)`, session as the password login; refusals → 303 `/login` without detail. Design: `oidc-proposal.md`; tests: `web/tests_oidc.rs` |
 | (b) waiting session | GET, POST | `/login/code` | waiting session **and** `csrf`; TOTP code (±1 step of 30 s, each step once: atomic `totp_last`) or recovery code (single use, digest); failures: 10 / IP / 5 min and **5 / account / 15 min, all IPs** (then 429 even for the right code); success replaces the waiting session with a new one; `next` limited to a client link like `/login`. A waiting session opens nothing else (303 `/login/code`, `/web/dav` → 401) |
 | (a) public | GET, POST | `/s/{token}` | 128-bit token; owner account active (disabled: 404); link password by POST (attempts limited per IP and per link) |
@@ -172,12 +172,13 @@ it, every request counts against the proxy's IP).
 ## Known limits (J1)
 - Header timeout (20 s) and connection count bounded; a request body that stops arriving is cut after 60 s of silence
   (`http::BODY_IDLE`, test `stalled_upload_is_cut`). **No** limit yet on concurrent requests per user.
-- Authentication failures: 10 per IP per 5 min (app passwords and form), 100 per minute for the form across the whole tenant.
-  Beyond that: form gets 429 **before** argon2; a **wrong** app password gets 429, but a **valid** app password goes through
-  (256 random bits, HMAC in microseconds: nothing to guess; a device with a revoked token no longer locks out the other
-  devices on the same IP). In memory: reset on restart.
-- Pending Login Flow flows are in memory: a restart cancels them (the client starts over). At most 4 pending per IP (429
-  beyond) and 64 per tenant (503): a single IP does not block other clients' logins.
+- Authentication failures: 10 per address per 5 min (app passwords and form), 10 per existing account per 15 min for the
+  form (not on a device known to the account). Beyond that: form gets 429 **before** argon2; a **wrong** app password gets
+  429, but a **valid** app password goes through (256 random bits, HMAC in microseconds: nothing to guess; a device with
+  a revoked token no longer locks out the other devices on the same IP). A table of addresses full of live ones lets an
+  unknown address through (the per-account, per-link and per-code limits still bound it). In memory: reset on restart.
+- Pending Login Flow flows are in memory: a restart cancels them (the client starts over). At most 4 pending per address
+  (429 beyond) and 256 per tenant, the oldest pending one dropped when full: no crowd of abandoned flows keeps a client out.
 - The "registrable domain" wildcard is approximated by ≥ 2 labels: `*.co.uk` would be accepted (no Public Suffix List).
 - Multi-tenant mode in one process: isolation relies on the code (§4.1, honest limits).
 
@@ -185,7 +186,10 @@ it, every request counts against the proxy's IP).
 - **Login Flow consent**: the confirmation page names the client and the address it came from, warns, and asks the
   reproof; a phished click with a live session no longer hands out an app password.
 - **Session to permanent access**: a new app password (Account page, QR code) asks the reproof.
-- **Tenant-wide lockout**: failures counted per IPv6 /64; an OIDC flow signs in once.
+- **Tenant-wide lockout**: failures counted per IPv6 /64 and per account (a device known to the account still opens), no
+  tenant-wide limit any more; a full address table no longer refuses new addresses; a full Login Flow table drops its
+  oldest pending flow; an OIDC flow signs in once.
+- **Login CSRF**: a sign-in, an activation or a link's password posted from another site is refused.
 - **Constant-time compares**: CSRF token and link cookies (`auth::constant_time_eq`).
 - **Single sign-on account without a password**: manages its two-step verification with its code alone.
 

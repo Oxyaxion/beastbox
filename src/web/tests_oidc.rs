@@ -1200,7 +1200,10 @@ async fn oidc_forged_cookie_does_not_fill_the_tenant_limit() {
         assert_eq!(s, StatusCode::SEE_OTHER, "request {i}");
         assert_eq!(h["location"].to_str().unwrap(), "/login");
     }
-    assert!(!alpha.failures().human_blocked());
+    // Nothing closed for the others: a callback from a new address is refused as usual (to /login), never a 429.
+    let fresh = [A, ("x-real-ip", "203.0.113.77")];
+    let (s, _, _) = call(&e.app, "GET", "/login/oidc/callback?code=c&state=s", &fresh, "").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
     // A forged `state` with a valid cookie: same rule.
     let (flow, _state) = forged_flow(&e, &alpha, "");
     for i in 0..150u32 {
@@ -1215,7 +1218,10 @@ async fn oidc_forged_cookie_does_not_fill_the_tenant_limit() {
         .await;
         assert_eq!(s, StatusCode::SEE_OTHER, "request {i}");
     }
-    assert!(!alpha.failures().human_blocked());
+    // Nothing closed for the others: a callback from a new address is refused as usual (to /login), never a 429.
+    let fresh = [A, ("x-real-ip", "203.0.113.77")];
+    let (s, _, _) = call(&e.app, "GET", "/login/oidc/callback?code=c&state=s", &fresh, "").await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
 }
 
 /// A complete sign-in through the provider for bob (bound to `sub-bob`, no password): the session cookie and its CSRF.
