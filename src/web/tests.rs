@@ -154,7 +154,7 @@ async fn upload_folder_of_100_files_and_actions() {
     let (s, _, body) = call(
         app,
         "GET",
-        "/web/files/Lot%20photo/",
+        "/web/files/Lot%20photo/?n=100",
         &[A, ("cookie", cookie.as_str())],
         "",
     )
@@ -788,7 +788,7 @@ async fn account_tokens_and_password() {
     login(&e, A, "nouveau-mot-de-passe").await;
 }
 
-/// §0.4: a large list is never rendered in one go: pages of 500 entries.
+/// §0.4: a large list is never rendered in one go: pages of 50 entries by default.
 #[tokio::test]
 async fn large_folder_is_paginated() {
     let e = env();
@@ -802,14 +802,20 @@ async fn large_folder_is_paginated() {
     let c = [A, ("cookie", cookie.as_str())];
     let rows = |b: &str| b.matches("data-dav=\"/web/dav/Gros/").count();
     let (_, _, p0) = call(app, "GET", "/web/files/Gros/", &c, "").await;
-    assert_eq!(rows(&p0), 500);
-    assert!(p0.contains("Page 1 of 3") && p0.contains("page=1") && !p0.contains("rel=\"prev\""));
-    let (_, _, p2) = call(app, "GET", "/web/files/Gros/?sort=name&desc=0&page=2", &c, "").await;
-    assert_eq!(rows(&p2), 200);
-    assert!(p2.contains("Page 3 of 3") && p2.contains("f1199.txt") && !p2.contains("rel=\"next\""));
+    assert_eq!(rows(&p0), 50);
+    assert!(p0.contains("Page 1 of 24") && p0.contains("page=1") && !p0.contains("rel=\"prev\""));
+    let (_, _, p2) = call(app, "GET", "/web/files/Gros/?sort=name&desc=0&page=23", &c, "").await;
+    assert_eq!(rows(&p2), 50);
+    assert!(p2.contains("Page 24 of 24") && p2.contains("f1199.txt") && !p2.contains("rel=\"next\""));
     let (s, _, _) = call(app, "GET", "/web/files/Gros/?page=999999999999", &c, "").await;
     assert_eq!(s, StatusCode::OK);
-    assert!(p0.contains("1–500 of 1200 items") && p0.contains("<option value=\"500\" selected>"));
+    assert!(p0.contains("1–50 of 1200 items") && p0.contains("<option value=\"50\" selected>"));
+    let offered: Vec<&str> = p0
+        .split("<option value=\"")
+        .skip(1)
+        .filter_map(|o| o.split('"').next())
+        .collect();
+    assert_eq!(offered, ["20", "50", "100", "500", "1000"]);
     // Chosen page size: applied, kept in the links and remembered (cookie); size outside the list ignored.
     let (_, h, p) = call(app, "GET", "/web/files/Gros/?sort=name&desc=0&n=100&page=11", &c, "").await;
     assert_eq!(rows(&p), 100);
@@ -820,8 +826,31 @@ async fn large_folder_is_paginated() {
     let c2 = [A, ("cookie", remembered.as_str())];
     let (_, h, p) = call(app, "GET", "/web/files/Gros/", &c2, "").await;
     assert!(rows(&p) == 100 && !h.contains_key("set-cookie"));
-    let (_, _, p) = call(app, "GET", "/web/files/Gros/?n=7", &c, "").await;
-    assert_eq!(rows(&p), 500);
+    for n in ["7", "200", "0", "10000"] {
+        let (_, _, p) = call(app, "GET", &format!("/web/files/Gros/?n={n}"), &c, "").await;
+        assert_eq!(rows(&p), 50, "{n}");
+    }
+    let (_, _, p) = call(app, "GET", "/web/files/Gros/?n=1000", &c, "").await;
+    assert_eq!(rows(&p), 1000);
+}
+
+/// The page size choice appears above the smallest size: not at 20 entries, at 21.
+#[tokio::test]
+async fn page_size_choice_from_21_entries() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, _) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let dir = disk(&e).join("P");
+    std::fs::create_dir(&dir).unwrap();
+    for i in 0..19 {
+        std::fs::write(dir.join(format!("f{i:02}.txt")), b"").unwrap();
+    }
+    for (name, offered) in [("f19.txt", false), ("f20.txt", true)] {
+        std::fs::write(dir.join(name), b"").unwrap();
+        let (_, _, p) = call(app, "GET", "/web/files/P/", &c, "").await;
+        assert_eq!(p.contains("data-par-page"), offered, "{name}");
+    }
 }
 
 /// Sorting by the Tags column: folders first, then by tags (untagged last, in both directions), then by name.

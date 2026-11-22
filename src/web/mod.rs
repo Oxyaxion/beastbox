@@ -747,8 +747,8 @@ pub(crate) struct Entry {
 
 /// Entries rendered per HTML page (default): only the displayed page is built and its tags read (§0.4: no
 /// large response built in memory). Sizes offered to the user: `PAGE_SIZES`.
-pub(crate) const PAGE: usize = 500;
-pub(crate) const PAGE_SIZES: [usize; 5] = [50, 100, 200, 500, 1000];
+pub(crate) const PAGE: usize = 50;
+pub(crate) const PAGE_SIZES: [usize; 5] = [20, 50, 100, 500, 1000];
 
 pub(crate) struct Listing {
     pub entries: Vec<Entry>,

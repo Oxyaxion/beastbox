@@ -21,6 +21,9 @@ use std::io;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// Entries per page of a shared folder (no size choice for a guest; §0.4: only that page is built).
+const SHARE_PAGE: usize = 500;
+
 /// Duration of the access granted after a link's password.
 const PASS_TTL: i64 = 3600;
 
@@ -375,7 +378,7 @@ async fn show(
             d2.as_ref(),
             "name",
             false,
-            (page, super::PAGE),
+            (page, SHARE_PAGE),
             (false, true),
             None,
         )
