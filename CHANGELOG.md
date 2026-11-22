@@ -4,6 +4,36 @@ One entry per release, newest first. Each release is a `vX.Y.Z` tag; the tag ann
 **Before upgrading** (anything that needs action or that clients will notice), then Changed, Added, Fixed, Security. Details are
 in `git log vX.Y.Z-1..vX.Y.Z`.
 
+## 0.16.1 — 2026-11-22
+
+### Before upgrading
+- **A new app password asks your password again** (Account page, mobile QR code, Login Flow confirmation). An account
+  bound to single sign-on without a password gives its two-step code instead, or signs in again if it has none.
+- **The Login Flow confirmation page** now shows which software asks and from which address, with a warning: only
+  authorize a connection you started yourself, a moment ago.
+- The project is now on Codeberg (https://codeberg.org/Modulus/beastbox), under the **AGPL-3.0-or-later** license; the
+  test report is at https://modulus.codeberg.page/beastbox/.
+
+### Changed
+- Sign-in failures from IPv6 are counted per /64 (one subscriber or machine), also for the Login Flow's per-address
+  limit.
+- An account bound to single sign-on manages its two-step verification with its code alone (it has no password).
+
+### Security
+- **Login Flow consent phishing**: a link received from someone else, opened while signed in, could hand a permanent app
+  password to the sender's client in one click, past the second step. The page now names the client and its address,
+  warns, and asks the password (or code) again.
+- **Session to permanent access**: a stolen web session could create an app password; it now needs the password again.
+- **Tenant-wide lockout**: one IPv6 /64 could fill the failure limits of a whole tenant; an OIDC flow cookie could be
+  replayed for 10 minutes (one back-channel call each). Failures are now counted per /64 and each flow signs in once.
+- Share link cookies and CSRF tokens are compared in constant time.
+
+### Tests
+- The reproof rule; app passwords refused without or with a wrong password, the address limit, the other tenant; the
+  Login Flow page (origin, warning, escaping, limit); single sign-on accounts (recent sign-in, code, two-step
+  verification without a password); an OIDC flow used once; IPv6 per /64 (property test); constant-time equality
+  (property test); revoking an app password: own only, with the form token, refused at once on WebDAV and OCS.
+
 ## 0.16.0 — 2026-11-22
 
 ### Before upgrading
