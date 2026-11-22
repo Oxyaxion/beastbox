@@ -169,8 +169,8 @@ it, every request counts against the proxy's IP).
   Beastbox (`orientation`). All fuzzed (`fuzz/fuzz_targets/thumb.rs`).
 
 ## Known limits (J1)
-- Header timeout (20 s) and connection count bounded; **no** timeout yet on a request body (very slow upload), nor a limit on
-  concurrent requests per user.
+- Header timeout (20 s) and connection count bounded; a request body that stops arriving is cut after 60 s of silence
+  (`http::BODY_IDLE`, test `stalled_upload_is_cut`). **No** limit yet on concurrent requests per user.
 - Authentication failures: 10 per IP per 5 min (app passwords and form), 100 per minute for the form across the whole tenant.
   Beyond that: form gets 429 **before** argon2; a **wrong** app password gets 429, but a **valid** app password goes through
   (256 random bits, HMAC in microseconds: nothing to guess; a device with a revoked token no longer locks out the other
@@ -180,18 +180,22 @@ it, every request counts against the proxy's IP).
 - The "registrable domain" wildcard is approximated by ≥ 2 labels: `*.co.uk` would be accepted (no Public Suffix List).
 - Multi-tenant mode in one process: isolation relies on the code (§4.1, honest limits).
 
-## Known limits accepted for the first exposure (review of authentication and OIDC, 2026-11-21)
+## Known limits accepted for the first exposure (review of authentication and OIDC, 2026-11-21; checked against the code 2026-11-22)
 Exposed by the owner's decision before the human review; to fix next:
 1. **Login Flow consent phishing**: a flow link opened by a signed-in victim gives the attacker a permanent app password
-   in one click; the confirmation page names neither the client nor where it came from. Fix: show the label and the
-   requesting IP, with a warning.
-2. **Tenant-wide lockout**: failures are keyed by full IP; with an IPv6 /64, 100 failures/min close every web sign-in
-   (OIDC callback included), and 4,096 addresses fill the IP table (new IPs refused 5 min). The flow cookie is reusable
-   for 10 min, so one flow replays callbacks (one back-channel call each). WebDAV is not affected. Fix: key IPv6 by /64.
-3. **Session to permanent access**: a web session creates an app password without asking the password again.
-4. **Non-constant-time compares**: CSRF token (`need_form`, `logout`, `login_code_post`, `welcome_post`), `share_pass_ok`,
-   `share_download_ok` use `==` (plan §: `subtle` for secrets).
-5. To check: an OIDC-linked account (no password) cannot turn off its Beastbox TOTP nor renew its recovery codes.
+   in one click, past the second step. The flow keeps the client's label (from its User-Agent) and IP, but the
+   confirmation page (`nc::flow_form`) shows neither, warns of nothing and asks nothing again. Fix: show the label and the
+   requesting IP with a warning, and ask the password or a code before granting.
+2. **Tenant-wide lockout**: failures are keyed by full IP (`auth::Failures`); with an IPv6 /64, 100 failures/min close
+   every web sign-in (OIDC callback included), and 4,096 addresses fill the IP table (new IPs refused 5 min). The OIDC flow
+   cookie is stateless: cleared in the browser after a success, but reusable for 10 min by whoever holds it, so one flow
+   replays callbacks (one back-channel call each). WebDAV is not affected. Fix: key IPv6 by /64.
+3. **Session to permanent access**: a web session creates an app password (`/web/account/tokens`, the mobile app's QR
+   code `/web/account/qr`) without asking the password or a code again.
+4. ~~Non-constant-time compares~~ — fixed (`cfdd59ac`): CSRF token (`web::csrf_ok`), `share_pass_ok`,
+   `share_download_ok` go through `auth::constant_time_eq` (`subtle`), as the OIDC flow already did.
+5. **OIDC-linked account without a password**: turning its Beastbox TOTP off or renewing its recovery codes asks the
+   password (`web::totp_manage`), which it does not have: it cannot do either itself (`beastbox user 2fa-reset` can).
 
 ## Human security review (mandatory before any exposure, plan §11 and §12.5)
 
