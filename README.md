@@ -11,8 +11,13 @@ It supports multi-member families, optional TOTP 2FA, but it has not undergone a
 rules.
 
 ## Why
-One order of priorities decides every choice: **1. never lose a file, 2. security, 3. performance and memory, 4. features**.
-When in doubt, a feature is not added. The full rationale: [specification](docs/dev/beastbox-plan.md).
+I wanted my family's files at home, on the FreeBSD server and ZFS pool I already run, without maintaining a full
+Nextcloud (PHP, a database, a long tail of apps). Beastbox keeps files safe and reachable from the Nextcloud apps people
+already have on their phones and computers, and not much more.
+
+When goals pull in different directions, not losing a file comes first, then security, then speed and memory use;
+new features come last, and many are left out on purpose. The reasoning behind each choice is in the
+[specification](docs/dev/beastbox-plan.md).
 
 ## What it does
 - **Sync with the official clients** — tested for real: desktop client on **Linux** and **Windows**, **Android** app,
