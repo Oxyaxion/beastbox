@@ -174,6 +174,19 @@ ALTER TABLE user ADD COLUMN oidc_issuer  TEXT;
 ALTER TABLE user ADD COLUMN oidc_subject TEXT;
 CREATE UNIQUE INDEX user_oidc ON user(tenant_id, oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL;
 ",
+    // Activation links (`user add`, `user passwd`, `user 2fa-reset`): one live link per account, only its digest.
+    "
+CREATE TABLE activation (
+    tenant_id  TEXT NOT NULL,
+    user_id    TEXT NOT NULL,
+    mac        BLOB NOT NULL,
+    expires_at INTEGER NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (tenant_id, user_id),
+    UNIQUE (tenant_id, mac),
+    FOREIGN KEY (tenant_id, user_id) REFERENCES user(tenant_id, user_id) ON DELETE CASCADE
+) STRICT;
+",
 ];
 
 /// Precision of an app password's last use (seconds).
@@ -188,6 +201,23 @@ const Q_USER_OIDC_LINK: &str = "UPDATE user SET oidc_issuer = ?3, oidc_subject =
      WHERE tenant_id = ?1 AND user_id = ?2 AND active = 1 AND oidc_subject IS NULL";
 const Q_USER_OIDC_UNLINK: &str = "UPDATE user SET oidc_issuer = NULL, oidc_subject = NULL, password_hash = ?3, must_change = 1 \
      WHERE tenant_id = ?1 AND user_id = ?2 AND oidc_subject IS NOT NULL";
+// An active account's link, replacing its previous one; nothing for an unknown or disabled account.
+const Q_ACTIVATION_ADD: &str = "INSERT INTO activation (tenant_id, user_id, mac, expires_at, created_at) \
+     SELECT ?1, ?2, ?3, ?4, ?5 WHERE EXISTS (SELECT 1 FROM user WHERE tenant_id = ?1 AND user_id = ?2 AND active = 1) \
+     ON CONFLICT (tenant_id, user_id) DO UPDATE SET mac = excluded.mac, expires_at = excluded.expires_at, \
+     created_at = excluded.created_at";
+const Q_ACTIVATION_FIND: &str = "SELECT a.user_id, u.password_hash IS NOT NULL, u.totp_secret IS NOT NULL, \
+     u.oidc_subject IS NOT NULL FROM activation a JOIN user u ON u.tenant_id = a.tenant_id AND u.user_id = a.user_id \
+     WHERE a.tenant_id = ?1 AND a.mac = ?2 AND a.expires_at > ?3 AND u.active = 1";
+// Consumes a live link of an active account, once: the row is gone when this returns it.
+const Q_ACTIVATION_TAKE: &str = "DELETE FROM activation WHERE tenant_id = ?1 AND mac = ?2 AND expires_at > ?3 \
+     AND EXISTS (SELECT 1 FROM user u WHERE u.tenant_id = ?1 AND u.user_id = activation.user_id AND u.active = 1) \
+     RETURNING user_id";
+const Q_ACTIVATION_SET_HASH: &str =
+    "UPDATE user SET password_hash = ?3, must_change = 0 WHERE tenant_id = ?1 AND user_id = ?2";
+const Q_USER_RESET: &str = "UPDATE user SET password_hash = NULL, must_change = 0, oidc_issuer = NULL, oidc_subject = NULL \
+     WHERE tenant_id = ?1 AND user_id = ?2 RETURNING oidc_subject IS NULL";
+const Q_USER_LINKED: &str = "SELECT oidc_subject IS NOT NULL FROM user WHERE tenant_id = ?1 AND user_id = ?2";
 const Q_USER_BY_OIDC: &str =
     "SELECT user_id FROM user WHERE tenant_id = ?1 AND oidc_issuer = ?2 AND oidc_subject = ?3 AND active = 1";
 const Q_AUDIT_ADD: &str = "INSERT INTO audit (tenant_id, audit_id, at, actor, action, result, ip) VALUES (?1, \
@@ -297,6 +327,12 @@ const Q_EVENT_SHARES: &str = "SELECT s.share_id, s.path_hint, s.revoked_at, s.en
 
 #[cfg(test)]
 const QUERIES: &[&str] = &[
+    Q_ACTIVATION_ADD,
+    Q_ACTIVATION_FIND,
+    Q_ACTIVATION_TAKE,
+    Q_ACTIVATION_SET_HASH,
+    Q_USER_RESET,
+    Q_USER_LINKED,
     Q_EVENT_LAST,
     Q_EVENT_BUMP,
     Q_EVENT_ADD,
@@ -572,6 +608,28 @@ pub struct SessionRow {
     pub created: i64,
 }
 
+/// A live activation link: its account and what it still lacks.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ActivationRow {
+    pub user: String,
+    pub has_password: bool,
+    /// Two-step verification already on.
+    pub totp: bool,
+    /// Bound to a provider identity (single sign-on).
+    pub linked: bool,
+}
+
+/// What a consumed activation link sets, in the same transaction: a password (argon2id digest), two-step verification
+/// (sealed secret, last step used, recovery code digests). Every web session of the account ends with it.
+#[derive(Debug, Default)]
+pub struct Activate<'a> {
+    pub password_hash: Option<&'a str>,
+    pub totp: Option<NewTotp<'a>>,
+}
+
+/// Two-step verification set by an activation: sealed secret, last step used, recovery code digests.
+pub type NewTotp<'a> = (&'a [u8], u64, &'a [[u8; 32]]);
+
 /// An `audit` row: when, who (`audit_in` explains `actor`), which action, its result.
 #[derive(Debug, PartialEq, Eq)]
 pub struct AuditRow {
@@ -791,6 +849,84 @@ impl Db {
         }
         tx.commit()?;
         Ok(done)
+    }
+
+    /// Records the activation link (its digest `mac`) of an active account until `expires_at`, replacing its previous
+    /// one. `false`: unknown or disabled account.
+    pub fn activation_add(&self, t: &TenantCtx, user: &str, mac: &[u8; 32], expires_at: i64, now: i64) -> Result<bool> {
+        Ok(self
+            .conn()?
+            .execute(Q_ACTIVATION_ADD, params![t.name(), user, &mac[..], expires_at, now])?
+            == 1)
+    }
+
+    /// The live link with this digest (before its end, account active), without consuming it.
+    pub fn activation_find(&self, t: &TenantCtx, mac: &[u8; 32], now: i64) -> Result<Option<ActivationRow>> {
+        use rusqlite::OptionalExtension;
+        Ok(self
+            .conn()?
+            .query_row(Q_ACTIVATION_FIND, params![t.name(), &mac[..], now], |r| {
+                Ok(ActivationRow {
+                    user: r.get(0)?,
+                    has_password: r.get::<_, i64>(1)? != 0,
+                    totp: r.get::<_, i64>(2)? != 0,
+                    linked: r.get::<_, i64>(3)? != 0,
+                })
+            })
+            .optional()?)
+    }
+
+    /// Consumes the live link with this digest and applies `what`, in one transaction (two submissions at once: one
+    /// wins, the other finds nothing); every web session of the account ends; audited. `None`: no such live link.
+    pub fn activate(&self, t: &TenantCtx, mac: &[u8; 32], now: i64, what: &Activate<'_>) -> Result<Option<String>> {
+        use rusqlite::OptionalExtension;
+        let c = self.conn()?;
+        let tx = c.unchecked_transaction()?;
+        let Some(user) = tx
+            .query_row(Q_ACTIVATION_TAKE, params![t.name(), &mac[..], now], |r| {
+                r.get::<_, String>(0)
+            })
+            .optional()?
+        else {
+            return Ok(None);
+        };
+        if let Some(h) = what.password_hash {
+            tx.execute(Q_ACTIVATION_SET_HASH, params![t.name(), user, h])?;
+        }
+        if let Some((sealed, last, codes)) = what.totp {
+            let last = i64::try_from(last).unwrap_or(i64::MAX);
+            tx.execute(Q_TOTP_SET, params![t.name(), user, sealed, last])?;
+            tx.execute(Q_RECOVERY_DEL_ALL, params![t.name(), user])?;
+            for m in codes {
+                tx.execute(Q_RECOVERY_ADD, params![t.name(), user, &m[..]])?;
+            }
+        }
+        tx.execute(Q_SESSION_DEL_USER, params![t.name(), user])?;
+        audit_in(&tx, t, Some(&user), "activate", "ok", None)?;
+        tx.commit()?;
+        Ok(Some(user))
+    }
+
+    /// Puts an account back to "to activate" (`user passwd`): no password, no provider identity (its unlinking audited),
+    /// no web session. Two-step verification and devices stay. `false`: unknown account.
+    pub fn user_reset_for_activation(&self, t: &TenantCtx, user: &str) -> Result<bool> {
+        use rusqlite::OptionalExtension;
+        let c = self.conn()?;
+        let tx = c.unchecked_transaction()?;
+        let linked: Option<bool> = tx
+            .query_row(Q_USER_LINKED, params![t.name(), user], |r| Ok(r.get::<_, i64>(0)? != 0))
+            .optional()?;
+        let Some(linked) = linked else {
+            return Ok(false);
+        };
+        tx.query_row(Q_USER_RESET, params![t.name(), user], |_| Ok(()))?;
+        tx.execute(Q_SESSION_DEL_USER, params![t.name(), user])?;
+        if linked {
+            audit_in(&tx, t, Some(user), "oidc-unlink", "ok", None)?;
+        }
+        audit_in(&tx, t, Some(user), "passwd-reset", "ok", None)?;
+        tx.commit()?;
+        Ok(true)
     }
 
     /// The `audit` rows of a tenant, oldest first (tests and diagnostics).
@@ -1364,6 +1500,109 @@ mod tests {
         }
     }
 
+    /// Activation links: one live link per account (a new one replaces it), found only in its tenant, before its end,
+    /// for an active account; consumed once, and the consumption and what it carries (password, two-step verification
+    /// and its recovery codes, sessions ended) are one transaction. The other tenant's alice is never touched.
+    #[test]
+    fn activation_links_once_and_in_their_tenant() {
+        let (reg, _a, _b) = two_tenants();
+        let d = tempfile::tempdir().unwrap();
+        let db = Db::open(&d.path().join("app.db")).unwrap();
+        db.sync_tenants(reg.all()).unwrap();
+        let (a, b) = (reg.by_name("alpha").unwrap(), reg.by_name("beta").unwrap());
+        db.user_add(&a, "alice", "h-old", false).unwrap();
+        db.user_add(&b, "alice", "h-old", false).unwrap();
+        let (m1, m2) = ([1u8; 32], [2u8; 32]);
+        assert!(db.activation_add(&a, "alice", &m1, 1000, 0).unwrap());
+        assert!(
+            !db.activation_add(&a, "ghost", &m2, 1000, 0).unwrap(),
+            "unknown account"
+        );
+        let row = db.activation_find(&a, &m1, 10).unwrap().unwrap();
+        assert!(row.user == "alice" && row.has_password && !row.totp && !row.linked);
+        assert!(db.activation_find(&b, &m1, 10).unwrap().is_none(), "other tenant");
+        assert!(
+            db.activation_find(&a, &m1, 999).unwrap().is_some(),
+            "just before its end"
+        );
+        assert!(db.activation_find(&a, &m1, 1000).unwrap().is_none(), "at its end");
+        // A new link replaces the old one.
+        assert!(db.activation_add(&a, "alice", &m2, 1000, 0).unwrap());
+        assert!(db.activation_find(&a, &m1, 10).unwrap().is_none());
+        // Disabled: neither found nor consumed; enabled again: back.
+        db.user_set_active(&a, "alice", false).unwrap();
+        assert!(db.activation_find(&a, &m2, 10).unwrap().is_none());
+        assert_eq!(db.activate(&a, &m2, 10, &Activate::default()).unwrap(), None);
+        db.user_set_active(&a, "alice", true).unwrap();
+        // Consumed once, with its changes, every session ended.
+        db.session_add(&a, "alice", &[9u8; 32], 3600).unwrap();
+        let sealed = vec![5u8; 36];
+        let act = Activate {
+            password_hash: Some("h-new"),
+            totp: Some((&sealed, 7, &[[3u8; 32]])),
+        };
+        assert_eq!(db.activate(&b, &m2, 10, &act).unwrap(), None, "other tenant");
+        assert_eq!(db.activate(&a, &m2, 1000, &act).unwrap(), None, "at its end");
+        assert_eq!(db.activate(&a, &m2, 10, &act).unwrap().as_deref(), Some("alice"));
+        assert_eq!(db.user_password_hash(&a, "alice").unwrap().as_deref(), Some("h-new"));
+        assert_eq!(db.user_must_change(&a, "alice").unwrap(), Some(false));
+        assert_eq!(db.totp_get(&a, "alice").unwrap(), Some((Some(sealed.clone()), 7)));
+        assert_eq!(db.recovery_count(&a, "alice").unwrap(), 1);
+        assert!(db.session_user(&a, &[9u8; 32]).unwrap().is_none());
+        assert_eq!(db.activate(&a, &m2, 11, &act).unwrap(), None, "used");
+        assert_eq!(db.user_password_hash(&b, "alice").unwrap().as_deref(), Some("h-old"));
+        assert_eq!(db.totp_get(&b, "alice").unwrap(), Some((None, 0)));
+    }
+
+    /// The same link sent many times at once (double click, two tabs, a retry): exactly one consumption.
+    #[test]
+    fn activation_is_consumed_once_under_concurrency() {
+        let (reg, _a, _b) = two_tenants();
+        let d = tempfile::tempdir().unwrap();
+        let db = Db::open(&d.path().join("app.db")).unwrap();
+        db.sync_tenants(reg.all()).unwrap();
+        let a = reg.by_name("alpha").unwrap();
+        db.user_add(&a, "alice", "h", false).unwrap();
+        assert!(db.activation_add(&a, "alice", &[1u8; 32], 1000, 0).unwrap());
+        let wins = std::sync::atomic::AtomicUsize::new(0);
+        std::thread::scope(|s| {
+            for _ in 0..8 {
+                s.spawn(|| {
+                    let act = Activate {
+                        password_hash: Some("h2"),
+                        totp: None,
+                    };
+                    if db.activate(&a, &[1u8; 32], 10, &act).unwrap().is_some() {
+                        wins.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    }
+                });
+            }
+        });
+        assert_eq!(wins.into_inner(), 1);
+    }
+
+    /// An account put back to "to activate" (`user passwd`): no password, no provider identity (audited), no session,
+    /// two-step verification and devices kept; unknown account: false.
+    #[test]
+    fn reset_for_activation() {
+        let (reg, _a, _b) = two_tenants();
+        let d = tempfile::tempdir().unwrap();
+        let db = Db::open(&d.path().join("app.db")).unwrap();
+        db.sync_tenants(reg.all()).unwrap();
+        let a = reg.by_name("alpha").unwrap();
+        db.user_add(&a, "alice", "h", false).unwrap();
+        db.user_add_oidc(&a, "bob", false).unwrap();
+        db.user_oidc_link(&a, "bob", "https://idp.example", "sub-bob").unwrap();
+        db.session_add(&a, "alice", &[9u8; 32], 3600).unwrap();
+        assert!(db.user_reset_for_activation(&a, "alice").unwrap());
+        assert_eq!(db.user_password_hash(&a, "alice").unwrap(), None);
+        assert!(db.session_user(&a, &[9u8; 32]).unwrap().is_none());
+        assert!(db.user_reset_for_activation(&a, "bob").unwrap());
+        assert_eq!(db.user_by_oidc(&a, "https://idp.example", "sub-bob").unwrap(), None);
+        assert!(db.audit_list(&a).unwrap().iter().any(|r| r.action == "oidc-unlink"));
+        assert!(!db.user_reset_for_activation(&a, "ghost").unwrap());
+    }
+
     #[test]
     fn every_table_has_tenant_in_primary_key() {
         let d = tempfile::tempdir().unwrap();
@@ -1627,7 +1866,8 @@ mod tests {
         let path = d.path().join("app.db");
         {
             let c = Connection::open(&path).unwrap();
-            let before = MIGRATIONS.len() - 3; // before `must_change`, two-step verification and OIDC
+            // Before `must_change` (and two-step verification, OIDC…): found by its content, not its rank from the end.
+            let before = MIGRATIONS.iter().position(|m| m.contains("must_change")).unwrap();
             for sql in &MIGRATIONS[..before] {
                 c.execute_batch(sql).unwrap();
             }
@@ -1804,7 +2044,7 @@ mod tests {
         let path = d.path().join("app.db");
         {
             let c = Connection::open(&path).unwrap();
-            let before = MIGRATIONS.len() - 1;
+            let before = MIGRATIONS.iter().position(|m| m.contains("oidc_issuer")).unwrap();
             for sql in &MIGRATIONS[..before] {
                 c.execute_batch(sql).unwrap();
             }

@@ -11,6 +11,16 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
   bound to single sign-on without a password gives its two-step code instead, or signs in again if it has none.
 - **The Login Flow confirmation page** now shows which software asks and from which address, with a warning: only
   authorize a connection you started yourself, a moment ago.
+- **No more passwords from the administrator: activation links.** `user add` creates an account **without a password**
+  and prints an activation link (single use, 24 hours) where the person chooses one; `user passwd` removes the
+  password and prints such a link (standard input is no longer read); on a tenant that requires two-step
+  verification, the phone is bound from that link too, and `user 2fa-reset` prints one. Send each link to its person
+  only.
+- **On a `required` tenant, an account without two-step verification can no longer set it up with its password
+  alone**: it waits for a link (`user 2fa-reset --tenant T NAME`), which asks its current password and the phone's
+  code. Accounts that already have it are not affected.
+- The links use the tenant's `public_base_url` (new, in `[[tenant]]`), otherwise `https://` + its first exact host;
+  a tenant with wildcard hosts only needs `public_base_url`.
 - The project is now on Codeberg (https://codeberg.org/Modulus/beastbox), under the **AGPL-3.0-or-later** license; the
   test report is at https://modulus.codeberg.page/beastbox/.
 
@@ -27,6 +37,8 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
 - **Tenant-wide lockout**: one IPv6 /64 could fill the failure limits of a whole tenant; an OIDC flow cookie could be
   replayed for 10 minutes (one back-channel call each). Failures are now counted per /64 and each flow signs in once.
 - Share link cookies and CSRF tokens are compared in constant time.
+- **First phone bound by whoever has the password** (two-step verification required): the setup page let the first
+  person signing in with the password bind their own phone. A first phone is now bound only from an activation link.
 - **Login Flow confirmed twice at once** (double click, two tabs): two app passwords were created, one of them handed
   to nobody. The first confirmation now takes the flow; the other creates nothing.
 
@@ -37,7 +49,11 @@ in `git log vX.Y.Z-1..vX.Y.Z`.
   (property test); revoking an app password: own only, with the form token, refused at once on WebDAV and OCS;
   a Login Flow confirmed twice at once gives one app password; wrong passwords on a share link never count against
   another link; a link limited to one download serves exactly one of 16 simultaneous requests (checked to fail when
-  the limit is not enforced by the database).
+  the limit is not enforced by the database); activation links: reading consumes nothing, single use (and two
+  submissions at once), dead links all answer the same, a weak or mismatched password or a wrong code keeps the link,
+  an account with a password must give it (limited per address), single sign-on accounts bind only a phone, sessions
+  end, a disabled account's link waits; the setup page no longer binds a phone; the CLI prints the links with the
+  tenant's address and refuses before creating anything when there is none.
 
 ## 0.16.0 — 2026-11-22
 

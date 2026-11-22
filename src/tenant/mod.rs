@@ -364,6 +364,7 @@ pub(crate) mod tests {
             hosts: vec![h.into()],
             data_root: p.into(),
             two_factor: Default::default(),
+            public_base_url: None,
             oidc: None,
         };
         let err = Registry::build(&[t("a", "a.org", a.path()), t("b", "b.org", b.path())], state.path()).unwrap_err();

@@ -1,21 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ lang.t("Two-step verification") }} — Beastbox{% endblock %}
 {% block content %}
-<section class="carte connexion large">
+<section class="carte connexion">
   <p class="logo"><span class="marque" aria-hidden="true"></span>Beastbox</p>
   <h1>{{ lang.t("Two-step verification") }}</h1>
-  <p>{{ lang.t("This space requires a code from an app on your phone at each sign-in. Set it up once to continue.") }}</p>
-  {% if !twofa.msg.is_empty() %}<p class="{% if twofa.error %}alerte{% else %}info{% endif %}" role="{% if twofa.error %}alert{% else %}status{% endif %}">{{ twofa.msg }}</p>{% endif %}
-  {% if twofa.recovery.is_empty() %}
-  {% include "twofa-qr.html" %}
-  {% else %}
-  <div class="info secret">
-    <p>{{ lang.t("Keep these recovery codes somewhere safe (printed, password manager): each one signs you in once without your phone. They will not be shown again.") }}</p>
-    <ol class="codes-secours">{% for c in twofa.recovery %}<li><code>{{ c }}</code></li>{% endfor %}</ol>
-  </div>
-  <p class="qr-fini"><a class="bouton principal" href="/web/files/">{{ lang.t("Continue") }}</a></p>
-  {% endif %}
-  <form method="post" action="/logout" class="pile"><input type="hidden" name="csrf" value="{{ twofa.csrf }}"><button type="submit" class="discret">{{ lang.t("Sign out") }}</button></form>
+  <p>{{ lang.t("This space requires two-step verification. To set it up, ask your administrator for an activation link: your password alone cannot.") }}</p>
+  <form method="post" action="/logout" class="pile"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" class="discret">{{ lang.t("Sign out") }}</button></form>
 </section>
 {% endblock %}
 {% block footer %}{% include "pied-public.html" %}{% endblock %}

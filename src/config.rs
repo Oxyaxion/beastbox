@@ -72,6 +72,10 @@ pub struct TenantConfig {
     /// Two-step verification (TOTP) for the tenant's accounts.
     #[serde(default)]
     pub two_factor: TwoFactor,
+    /// The tenant's public address for the links the CLI prints (activation), `scheme://host[:port]`: `https`, or `http`
+    /// on a test bench (`insecure_cookies`); one of the tenant's hosts. Default: `https://` + its first exact host.
+    #[serde(default)]
+    pub public_base_url: Option<String>,
     /// Single sign-on: absent means the tenant's accounts sign in with a password only.
     #[serde(default)]
     pub oidc: Option<OidcConfig>,
@@ -366,6 +370,10 @@ impl Config {
                     t.name
                 )));
             }
+            if let Some(raw) = &t.public_base_url {
+                base_url(raw, &t.hosts, self.insecure_cookies)
+                    .map_err(|m| Error::Config(format!("tenant {}: public_base_url {raw:?}: {m}", t.name)))?;
+            }
             if let Some(o) = &t.oidc {
                 validate_oidc(&t.name, o)?;
                 if !oidc_clients.insert((o.issuer.clone(), o.client_id.clone())) {
@@ -389,6 +397,69 @@ impl Config {
     pub fn db_path(&self) -> PathBuf {
         self.state_dir.join("app.db")
     }
+
+    /// The public address of `tenant` (`scheme://host[:port]`), for the links the CLI prints: its `public_base_url`,
+    /// otherwise its `[tenant.oidc]` one, otherwise `https://` + its first exact host. None of them (wildcard hosts
+    /// only): an error that says what to set.
+    pub fn public_base(&self, tenant: &str) -> Result<String> {
+        let t = self
+            .tenants
+            .iter()
+            .find(|t| t.name == tenant)
+            .ok_or_else(|| Error::Config(format!("unknown tenant: {tenant}")))?;
+        let given = t
+            .public_base_url
+            .as_ref()
+            .or(t.oidc.as_ref().and_then(|o| o.public_base_url.as_ref()));
+        if let Some(raw) = given {
+            return base_url(raw, &t.hosts, self.insecure_cookies)
+                .map_err(|m| Error::Config(format!("tenant {tenant}: public_base_url {raw:?}: {m}")));
+        }
+        t.hosts
+            .iter()
+            .find(|h| !h.starts_with('*'))
+            .and_then(|h| crate::tenant::normalize_host(h))
+            .map(|h| format!("https://{h}"))
+            .ok_or_else(|| {
+                Error::Config(format!(
+                    "tenant {tenant}: no public address for its links (its hosts are wildcards only): set \
+                     public_base_url = \"https://<host>\" in its [[tenant]]"
+                ))
+            })
+    }
+}
+
+/// A public base URL, checked: `https://host[:port]` (`http` only when `insecure`, the test bench), the host one of
+/// `hosts` (a wildcard covers one label), no user, path, query or fragment; the default port left implicit.
+fn base_url(raw: &str, hosts: &[String], insecure: bool) -> std::result::Result<String, &'static str> {
+    let (scheme, rest, default) = match (raw.strip_prefix("https://"), raw.strip_prefix("http://")) {
+        (Some(r), _) => ("https", r, 443),
+        (None, Some(r)) if insecure => ("http", r, 80),
+        (None, Some(_)) => return Err("http only on a test bench (insecure_cookies = true)"),
+        _ => return Err("https://host[:port] expected"),
+    };
+    if rest.is_empty() || rest.contains(['/', '@', '?', '#', '\\']) {
+        return Err("only scheme://host[:port]: no user, path, query or trailing slash");
+    }
+    let (host, port) = match rest.rsplit_once(':') {
+        Some((h, p)) => {
+            let ok = !p.is_empty() && p.len() <= 5 && p.bytes().all(|b| b.is_ascii_digit());
+            match p.parse::<u16>() {
+                Ok(n) if ok && n > 0 => (h, n),
+                _ => return Err("bad port"),
+            }
+        }
+        None => (rest, default),
+    };
+    let host = crate::tenant::normalize_host(host).ok_or("bad host")?;
+    if !hosts.iter().any(|h| host_entry_matches(h, &host)) {
+        return Err("the host is not one of the tenant's hosts");
+    }
+    Ok(if port == default {
+        format!("{scheme}://{host}")
+    } else {
+        format!("{scheme}://{host}:{port}")
+    })
 }
 
 /// Hosts the token endpoint may live on, besides the issuer's.
@@ -504,6 +575,76 @@ mod tests {
 
     /// Loading a file: missing, unreadable TOML and a refused setting each give a configuration error naming the
     /// problem; a good file loads.
+    /// The public address of a tenant, for the links the CLI prints (activation): `public_base_url` when given (https,
+    /// or http only on a test bench with `insecure_cookies`; one of the tenant's hosts; no path), otherwise the
+    /// `[tenant.oidc]` one, otherwise `https://` + the first exact host; none possible (wildcards only): an error that
+    /// says what to add.
+    #[test]
+    fn public_base_of_a_tenant() {
+        let c = |top: &str, tenant: &str| {
+            parse(&format!(
+                "trusted_proxies=[\"127.0.0.1\"]\n{top}\n[[tenant]]\nname=\"alpha\"\nhosts=[\"*.alpha.example\", \"files.alpha.example\"]\ndata_root=\"/tmp/a\"\n{tenant}"
+            ))
+        };
+        assert_eq!(
+            c("", "").unwrap().public_base("alpha").unwrap(),
+            "https://files.alpha.example"
+        );
+        let given = c("", "public_base_url=\"https://www.alpha.example:8443\"").unwrap();
+        assert_eq!(given.public_base("alpha").unwrap(), "https://www.alpha.example:8443");
+        let std_port = c("", "public_base_url=\"https://files.alpha.example:443\"").unwrap();
+        assert_eq!(std_port.public_base("alpha").unwrap(), "https://files.alpha.example");
+        // http: only on a test bench.
+        assert!(c("", "public_base_url=\"http://files.alpha.example:8480\"").is_err());
+        let bench = c(
+            "insecure_cookies = true",
+            "public_base_url=\"http://files.alpha.example:8480\"",
+        )
+        .unwrap();
+        assert_eq!(bench.public_base("alpha").unwrap(), "http://files.alpha.example:8480");
+        for bad in [
+            "https://evil.example",
+            "https://files.alpha.example/path",
+            "https://files.alpha.example/",
+            "ftp://files.alpha.example",
+            "https://files.alpha.example:0",
+            "https://files.alpha.example:99999",
+            "https://user@files.alpha.example",
+            "files.alpha.example",
+        ] {
+            assert!(c("", &format!("public_base_url=\"{bad}\"")).is_err(), "{bad}");
+        }
+        // Wildcards only, nothing given: an error that names the setting.
+        let wild = parse(
+            "trusted_proxies=[\"127.0.0.1\"]\n[[tenant]]\nname=\"alpha\"\nhosts=[\"*.alpha.example\"]\ndata_root=\"/tmp/a\"\n",
+        )
+        .unwrap();
+        assert!(
+            wild.public_base("alpha")
+                .unwrap_err()
+                .to_string()
+                .contains("public_base_url")
+        );
+        assert!(c("", "").unwrap().public_base("nope").is_err());
+        // The default port of http is left implicit; without its own setting, the [tenant.oidc] one is used.
+        let bench80 = c(
+            "insecure_cookies = true",
+            "public_base_url=\"http://files.alpha.example:80\"",
+        )
+        .unwrap();
+        assert_eq!(bench80.public_base("alpha").unwrap(), "http://files.alpha.example");
+        let from_oidc = c(
+            "",
+            "[tenant.oidc]\nissuer=\"https://auth.example\"\nclient_id=\"c\"\nclient_secret_file=\"/etc/s\"\n\
+             public_base_url=\"https://www.alpha.example:8443\"",
+        )
+        .unwrap();
+        assert_eq!(
+            from_oidc.public_base("alpha").unwrap(),
+            "https://www.alpha.example:8443"
+        );
+    }
+
     #[test]
     fn load_from_file() {
         let d = tempfile::tempdir().unwrap();

@@ -24,8 +24,12 @@ min_password = 12
 name = "alpha"
 hosts = ["files.alpha.example", "*.alpha.example"]
 data_root = "/mnt/data/beastbox-alpha"
-# Two-step verification (TOTP): "off", "optional" (default: each user chooses) or "required" (set up at next sign-in).
+# Two-step verification (TOTP): "off", "optional" (default: each user chooses) or "required" (a first phone is bound
+# only through the activation link the CLI prints: `user add`, `user passwd`, `user 2fa-reset`).
 two_factor = "required"
+# Public address of the links the CLI prints (activation), scheme://host[:port], one of the hosts above. Default:
+# https:// + the first exact host. `http://` only on a test bench (insecure_cookies = true).
+# public_base_url = "https://files.alpha.example"
 # Single sign-on (optional): absent means password-only sign-in. Design: docs/dev/oidc-proposal.md.
 # Nothing to install: the back channel goes through the base system's Casper `system.net` service (ADR-6),
 # limited to the configured destinations; `serve` refuses to start when it cannot set or verify those limits.

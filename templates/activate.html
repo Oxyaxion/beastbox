@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}{{ lang.t("Activate your account") }} — Beastbox{% endblock %}
+{% block content %}
+<section class="carte connexion{% if phone %} large{% endif %}">
+  <p class="logo"><span class="marque" aria-hidden="true"></span>Beastbox</p>
+  <h1>{{ lang.t("Activate your account") }}</h1>
+  {% if recovery.is_empty() %}
+  <p>{{ lang.t("Welcome") }} {{ user }}. {{ lang.t("This link works once, within 24 hours of being sent.") }}</p>
+  {% if !message.is_empty() %}<p class="alerte" role="alert">{{ message }}</p>{% endif %}
+  <form method="post" action="/activate/{{ token }}" class="pile">
+    {% if current %}
+    <div class="champ"><label for="current">{{ lang.t("Current password") }}</label>
+      <input id="current" name="current" type="password" autocomplete="current-password" required autofocus></div>
+    {% endif %}
+    {% if choose %}
+    <div class="champ"><label for="new">{{ lang.t("New password") }}</label>
+      <input id="new" name="new" type="password" autocomplete="new-password" minlength="{{ min_password }}" required aria-describedby="new-aide">
+      <small id="new-aide">{{ min_password }} {{ lang.t("characters at least, without your name, a sequence or a keyboard row") }}</small></div>
+    <div class="champ"><label for="again">{{ lang.t("New password again") }}</label>
+      <input id="again" name="again" type="password" autocomplete="new-password" minlength="{{ min_password }}" required></div>
+    {% endif %}
+    {% if phone %}
+    <div class="qr-carte">
+      <div class="qr-code">{{ qr|safe }}</div>
+      <div class="qr-texte">
+        <ol>
+          <li>{{ lang.t("Open an authenticator app on your phone (Aegis, FreeOTP, Google Authenticator…) and add an account.") }}</li>
+          <li>{{ lang.t("Scan this code, or type this key:") }} <code class="cle-totp">{{ key }}</code></li>
+          <li>{{ lang.t("Enter the 6-digit code the app shows.") }}</li>
+        </ol>
+        <div class="champ"><label for="code">{{ lang.t("Code") }}</label>
+          <input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      </div>
+    </div>
+    {% endif %}
+    <button type="submit" class="principal">{{ lang.t("Activate") }}</button>
+  </form>
+  {% else %}
+  <div class="info secret" role="status">
+    <p>{{ lang.t("Keep these recovery codes somewhere safe (printed, password manager): each one signs you in once without your phone. They will not be shown again.") }}</p>
+    <ol class="codes-secours">{% for c in recovery %}<li><code>{{ c }}</code></li>{% endfor %}</ol>
+  </div>
+  <p class="qr-fini"><a class="bouton principal" href="/login">{{ lang.t("Continue to sign in") }}</a></p>
+  {% endif %}
+</section>
+{% endblock %}
+{% block footer %}{% include "pied-public.html" %}{% endblock %}

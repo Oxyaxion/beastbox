@@ -182,8 +182,8 @@ if [ "$long" = "--long" ]; then
     done
     step "WebDAV compliance: litmus against a server of this code, started here (under a minute)"
     # A temporary server on the CI datasets (TESTING.md): tenant alpha, account carol (a real dataset, as user add wants).
-    # Its app password is obtained as a user would: sign-in, the welcome page (password set by the administrator),
-    # sign-in again, account page; so this also walks the first sign-in end to end.
+    # Its app password is obtained as a user would: the activation link (password chosen there),
+    # sign-in, account page; so this also walks a new account's first steps end to end.
     ci=${BEASTBOX_CI_ROOT:-/var/tmp/beastbox-ci}
     cargo build --locked -q
     bin=${CARGO_TARGET_DIR:-target}/debug/beastbox
@@ -191,7 +191,9 @@ if [ "$long" = "--long" ]; then
     find "$ci/alpha/carol" -mindepth 1 -delete
     printf 'listen = "127.0.0.1:18080"\ntrusted_proxies = ["127.0.0.1"]\nstate_dir = "%s"\nlog_level = "warn"\ninsecure_cookies = true\n[[tenant]]\nname = "alpha"\nhosts = ["localhost"]\ndata_root = "%s/alpha"\n' \
         "$lt" "$ci" > "$lt/b.toml"
-    pw=$("$bin" -c "$lt/b.toml" user add --tenant alpha carol | awk '{print $NF}')
+    # `user add` prints an activation link (no password): its path, the host is this local server.
+    link=$("$bin" -c "$lt/b.toml" user add --tenant alpha carol | grep -oE '/activate/[0-9a-f]{64}')
+    [ -n "$link" ] || { echo "no activation link from user add"; exit 1; }
     "$bin" -c "$lt/b.toml" serve > target/litmus-server.log 2>&1 &
     srv=$!
     trap 'kill $srv 2>/dev/null' EXIT
@@ -199,10 +201,7 @@ if [ "$long" = "--long" ]; then
     csrf() { web "http://localhost:18080$1" | grep -oE 'name="csrf" value="[0-9a-f]+"' | head -1 | cut -d'"' -f4; }
     i=0; until web -o /dev/null http://localhost:18080/status.php; do i=$((i + 1)); [ $i -lt 30 ] || { echo "server down"; exit 1; }; sleep 1; done
     new=litmus-pass-$$-ok
-    web -o /dev/null --data-urlencode user=carol --data-urlencode "password=$pw" http://localhost:18080/login
-    c=$(csrf /web/welcome)
-    web -o /dev/null --data-urlencode "csrf=$c" --data-urlencode "current=$pw" --data-urlencode "new=$new" \
-        --data-urlencode "again=$new" http://localhost:18080/web/welcome
+    web -o /dev/null --data-urlencode "new=$new" --data-urlencode "again=$new" "http://localhost:18080$link"
     web -o /dev/null --data-urlencode user=carol --data-urlencode "password=$new" http://localhost:18080/login
     c=$(csrf /web/account)
     # A new app password asks the password again (`web::Reproof`), as for a person.

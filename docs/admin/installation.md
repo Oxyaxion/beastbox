@@ -25,7 +25,7 @@ zfs create -o quota=50G zroot/beastbox/alpha/alice
 chown -R beastbox:beastbox /mnt/data/beastbox-alpha && chmod 0700 /mnt/data/beastbox-alpha /mnt/data/beastbox-alpha/alice
 install -m 0640 -g beastbox beastbox.example.toml /usr/local/etc/beastbox.toml   # adapt it (commented)
 su -m beastbox -c 'beastbox check-config'
-su -m beastbox -c 'beastbox user add --tenant alpha alice --admin'               # password shown once
+su -m beastbox -c 'beastbox user add --tenant alpha alice --admin'               # prints alice's activation link (24 h, once)
 su -m beastbox -c 'beastbox rescan --tenant alpha --user alice'                  # gives the new space's root its identity
 sysrc beastbox_enable=YES && service beastbox start                              # log: /var/log/beastbox/
 ```
@@ -79,7 +79,8 @@ covers the provider.
 - **Who signs in.** An account is bound to a provider identity **by the administrator only**:
   `beastbox user add --tenant alpha bob --oidc` (no password), then
   `beastbox user oidc-link --tenant alpha bob --subject <sub the provider gives for that account>`. Linking clears
-  the account's password and ends its sessions; `beastbox user passwd` undoes it (identity removed, sessions ended).
+  the account's password and ends its sessions; `beastbox user passwd` undoes it (identity removed, sessions ended,
+  an activation link to choose a password).
 - **One door.** On a tenant with a provider the web sign-in form is **gone** and `POST /login` is refused: the
   provider is the only way in, then the account's TOTP when Beastbox holds it. `password_login = true` keeps the
   local form for a break-glass account — and leaves a second, weaker door open. `beastbox user passwd` on such a
@@ -91,15 +92,17 @@ covers the provider.
 
 ## Commands
 ```sh
-beastbox user add --tenant T NAME [--admin]   # first, on the host: its dataset under the tenant's; password shown once,
-                                               # replaced at first sign-in; then `rescan --user NAME` (root identity)
+beastbox user add --tenant T NAME [--admin]   # first, on the host: its dataset under the tenant's; no password: prints an
+                                               # activation link (single use, 24 h) where the person chooses one and, if
+                                               # the tenant requires it, binds a phone; then `rescan --user NAME`
                                                # --admin: recorded and shown on the Account page only, no extra
                                                # permission anywhere (kept for a future need); all administration is this CLI
 beastbox user list --tenant T                  # name, role, active|disabled, 2fa|-
 beastbox user disable --tenant T NAME          # no sign-in, sessions ended, devices and links blocked; files kept
 beastbox user enable --tenant T NAME           # devices and links answer again
-beastbox user 2fa-reset --tenant T NAME        # lost phone and recovery codes: two-step verification removed, sessions ended
-beastbox user passwd --tenant T NAME           # stdin; empty = generated (recommended); to be replaced at next sign-in
+beastbox user 2fa-reset --tenant T NAME        # lost phone and recovery codes: two-step verification removed, sessions ended;
+                                               # on a `required` tenant, an activation link (with the account's password)
+beastbox user passwd --tenant T NAME           # password removed, sessions ended, an activation link to choose a new one
 beastbox user add --tenant T NAME --oidc       # dataset first; no password: signs in through the provider only
 beastbox user oidc-link --tenant T NAME --subject S   # binds the provider identity S (its `sub`) to that account
 beastbox verify --tenant T [--user U]         # read-only; exit code 1 if there are discrepancies

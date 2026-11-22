@@ -621,6 +621,17 @@ const FR: &[(&str, &str)] = &[
     ("Show", "Afficher"),
     ("Sort", "Trier"),
     ("Your password", "Votre mot de passe"),
+    ("Activate your account", "Activer votre compte"),
+    ("Activate", "Activer"),
+    ("Continue to sign in", "Continuer vers la connexion"),
+    (
+        "This link works once, within 24 hours of being sent.",
+        "Ce lien ne fonctionne qu'une fois, dans les 24 heures qui suivent son envoi.",
+    ),
+    (
+        "This space requires two-step verification. To set it up, ask your administrator for an activation link: your password alone cannot.",
+        "Cet espace exige la validation en deux étapes. Pour la configurer, demandez un lien d'activation à votre administrateur : votre mot de passe seul ne le permet pas.",
+    ),
     ("Software:", "Logiciel :"),
     ("Requested from the address:", "Demandé depuis l'adresse :"),
     (

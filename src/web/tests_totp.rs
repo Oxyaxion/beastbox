@@ -562,24 +562,15 @@ async fn required_tenant_holds_until_set_up() {
         StatusCode::SEE_OTHER
     );
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
-    // The setup page.
-    let secret = totp::setup_secret(&t, cookie.split_once('=').unwrap().1);
+    // The page held on: no QR code, no form; a right code posted anyway is refused (the password alone binds no phone).
     let (s, _, page) = call(&e.app, "GET", "/web/2fa-setup", &c, "").await;
-    assert!(s == StatusCode::OK && page.contains("<svg") && page.contains(&totp::grouped(&totp::base32(&secret))));
-    let right = format!("{:06}", totp::hotp(&secret, totp::step(totp::now())));
-    let (s, _, _) = call(&e.app, "POST", "/web/2fa-setup", &c, &format!("csrf=faux&code={right}")).await;
-    assert_eq!(s, StatusCode::FORBIDDEN);
-    let (s, _, page) = call(
-        &e.app,
-        "POST",
-        "/web/2fa-setup",
-        &c,
-        &format!("csrf={csrf}&code=000000"),
-    )
-    .await;
-    assert!(s == StatusCode::BAD_REQUEST && page.contains("Wrong code"), "{page}");
-    assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
-    let (s, _, page) = call(
+    assert!(
+        s == StatusCode::OK && !page.contains("<svg") && page.contains("activation link"),
+        "{page}"
+    );
+    let own = totp::setup_secret(&t, cookie.split_once('=').unwrap().1);
+    let right = format!("{:06}", totp::hotp(&own, totp::step(totp::now())));
+    let (s, _, _) = call(
         &e.app,
         "POST",
         "/web/2fa-setup",
@@ -587,10 +578,23 @@ async fn required_tenant_holds_until_set_up() {
         &format!("csrf={csrf}&code={right}"),
     )
     .await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
+    // The administrator's link: current password and the phone's code; it ends the session above.
+    let token = auth::activation_issue(&e.state.db, &t, "alice", crate::db::now_secs()).unwrap();
+    let secret = totp::setup_secret(&t, &token);
+    let code = format!("{:06}", totp::hotp(&secret, totp::step(totp::now())));
+    let body = format!("current=pw-alice&code={code}");
+    let (s, _, page) = call(&e.app, "POST", &format!("/activate/{token}"), &[A], &body).await;
     assert!(
-        s == StatusCode::OK && page.matches("<li><code>").count() == 10 && page.contains("href=\"/web/files/\""),
+        s == StatusCode::OK && page.matches("<li><code>").count() == 10,
         "{page}"
     );
+    assert_eq!(status(&e.app, "GET", "/web/files/", &c).await, StatusCode::SEE_OTHER);
+    // Signed in again, password then code: the application opens, the setup page is behind.
+    let next = format!("{:06}", totp::hotp(&secret, totp::step(totp::now()) + 1));
+    let (cookie, csrf) = login2(&e, A, "pw-alice", &next).await;
+    let c = [A, ("cookie", cookie.as_str())];
     assert_eq!(status(&e.app, "GET", "/web/files/", &c).await, StatusCode::OK);
     let (s, h, _) = call(&e.app, "GET", "/web/2fa-setup", &c, "").await;
     assert_eq!((s, location(&h)), (StatusCode::SEE_OTHER, "/web/files/"));

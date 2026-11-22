@@ -5,6 +5,7 @@
 // axum handlers return a ready-made `Response` as the error (redirect, error page): intended idiom.
 #![allow(clippy::result_large_err)]
 
+mod activate;
 #[cfg(test)]
 mod audit;
 pub(crate) mod oidc;
@@ -12,6 +13,8 @@ pub(crate) mod render;
 pub(crate) mod share;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_activation;
 #[cfg(test)]
 mod tests_edges;
 #[cfg(test)]
@@ -177,6 +180,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/web/trash/empty", post(trash_empty))
         .route(WELCOME, get(welcome).post(welcome_post))
         .route(TOTP_SETUP, get(totp_setup).post(totp_setup_post))
+        .route("/activate/{token}", get(activate::show).post(activate::submit))
         .route("/web/account/2fa", post(totp_manage))
         .route("/web/account/2fa/start", post(totp_start))
         .route("/web/account/2fa/confirm", post(totp_confirm))
@@ -4331,73 +4335,40 @@ async fn totp_manage(
 #[template(path = "twofa-setup.html")]
 struct TwoFaSetupPage {
     lang: Lang,
-    twofa: TwoFaView,
+    csrf: String,
 }
 
-fn totp_setup_page(lang: Lang, code: StatusCode, twofa: TwoFaView) -> Response {
-    html(code, &TwoFaSetupPage { lang, twofa })
-}
-
-/// The setup view of the required-setup page, with its QR code.
-fn totp_setup_view(t: &TenantCtx, lang: Lang, origin: &Base, w: &WebUser) -> TwoFaView {
-    let (qr, secret) = totp_qr(lang, origin, w.u.user(), &totp::setup_secret(t, &w.secret));
-    TwoFaView {
-        state: "setup",
-        required: true,
-        qr,
-        secret,
-        action: TOTP_SETUP,
-        csrf: w.csrf.clone(),
-        ..Default::default()
-    }
+/// The page a session of a `required` tenant without two-step verification is held on. Binding a first phone with the
+/// password alone would let whoever has the password bind theirs: it is done only from an activation link the
+/// administrator gives (`web::activate`); this page says so, and offers to sign out.
+fn totp_setup_page(lang: Lang, code: StatusCode, w: &WebUser) -> Response {
+    html(
+        code,
+        &TwoFaSetupPage {
+            lang,
+            csrf: w.csrf.clone(),
+        },
+    )
 }
 
 /// `GET /web/2fa-setup`: the tenant requires two-step verification and the account has none yet.
-async fn totp_setup(
-    State(app): State<Arc<App>>,
-    Extension(t): Extension<TenantCtx>,
-    Extension(origin): Extension<Base>,
-    h: HeaderMap,
-) -> Response {
+async fn totp_setup(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h: HeaderMap) -> Response {
     match need_gate(&app, &t, &h, TOTP_SETUP).await {
-        Ok(w) => {
-            let lang = lang(&app, &h);
-            totp_setup_page(lang, StatusCode::OK, totp_setup_view(&t, lang, &origin, &w))
-        }
+        Ok(w) => totp_setup_page(lang(&app, &h), StatusCode::OK, &w),
         Err(r) => r,
     }
 }
 
-/// `POST /web/2fa-setup`: the code from the app; success shows the recovery codes once, then the application opens.
-async fn totp_setup_post(
-    State(app): State<Arc<App>>,
-    Extension(t): Extension<TenantCtx>,
-    Extension(origin): Extension<Base>,
-    Extension(ip): Extension<ClientIp>,
-    h: HeaderMap,
-    body: Bytes,
-) -> Response {
-    let w = match need_gate(&app, &t, &h, TOTP_SETUP).await {
-        Ok(w) => w,
-        Err(r) => return r,
-    };
-    let lang = lang(&app, &h);
-    let mut v = totp_setup_view(&t, lang, &origin, &w);
-    if !csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf) {
-        v.msg = lang.t("Invalid form token: reload the page.");
-        v.error = true;
-        return totp_setup_page(lang, StatusCode::FORBIDDEN, v);
-    }
-    match totp_setup_confirm(&app, &t, ip, &w, &body).await {
-        Ok(Some(codes)) => {
-            v.recovery = codes;
-            v.msg = lang.t("Two-step verification is on.");
-            totp_setup_page(lang, StatusCode::OK, v)
-        }
-        Ok(None) => {
-            v.msg = lang.t("Wrong code: check that the phone is on time and try again.");
-            v.error = true;
-            totp_setup_page(lang, StatusCode::BAD_REQUEST, v)
+/// `POST /web/2fa-setup`: refused — a first phone is bound only through an activation link.
+async fn totp_setup_post(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h: HeaderMap) -> Response {
+    match need_gate(&app, &t, &h, TOTP_SETUP).await {
+        Ok(w) => {
+            tracing::warn!(
+                tenant = t.name(),
+                user = w.u.user(),
+                "two-step setup without an activation link: refused"
+            );
+            totp_setup_page(lang(&app, &h), StatusCode::FORBIDDEN, &w)
         }
         Err(r) => r,
     }

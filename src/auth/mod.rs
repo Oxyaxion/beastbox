@@ -347,6 +347,29 @@ pub fn session_user(db: &Db, t: &TenantCtx, secret: &str) -> Result<Option<(User
     }))
 }
 
+/// How long an activation link stays valid (it is also single-use).
+pub const ACTIVATION_TTL: i64 = 24 * 3600;
+
+/// A new activation link for an active account (`user add`, `user passwd`, `user 2fa-reset`): 256 random bits, returned
+/// to be printed once; only its HMAC digest is stored, valid `ACTIVATION_TTL` from `now`; it replaces the account's
+/// previous link. Unknown or disabled account: an error.
+pub fn activation_issue(db: &Db, t: &TenantCtx, user: &str, now: i64) -> Result<String> {
+    let token = random_hex::<32>()?;
+    if !db.activation_add(
+        t,
+        user,
+        &t.mac(token.as_bytes()),
+        now.saturating_add(ACTIVATION_TTL),
+        now,
+    )? {
+        return Err(Error::Invalid(format!(
+            "unknown or disabled account in {}: {user}",
+            t.name()
+        )));
+    }
+    Ok(token)
+}
+
 /// How long the password stays valid while the second step is awaited.
 pub const PENDING_TTL: i64 = 5 * 60;
 
@@ -836,6 +859,33 @@ pub(crate) mod tests {
         assert_eq!(k("2001:db8:1:2:aaaa::1"), k("2001:db8:1:2:ffff:ffff:ffff:ffff"));
         assert_eq!(k("2001:db8:1:2:aaaa::1"), "2001:db8:1:2::".parse::<IpAddr>().unwrap());
         assert_ne!(k("2001:db8:1:2::1"), k("2001:db8:1:3::1"));
+    }
+
+    /// An activation link: 256 random bits, only its digest stored, valid `ACTIVATION_TTL`; refused for an unknown or
+    /// disabled account; two links are never the same.
+    #[test]
+    fn activation_issue_bounds() {
+        let (reg, _a, _b) = two_tenants();
+        let d = tempfile::tempdir().unwrap();
+        let db = db_with_users(&reg, d.path());
+        let a = reg.by_name("alpha").unwrap();
+        let t1 = activation_issue(&db, &a, "alice", 1_000).unwrap();
+        assert!(t1.len() == 64 && t1.bytes().all(|b| b.is_ascii_hexdigit()));
+        let row = db
+            .activation_find(&a, &a.mac(t1.as_bytes()), 1_000 + ACTIVATION_TTL - 1)
+            .unwrap();
+        assert_eq!(row.map(|r| r.user).as_deref(), Some("alice"));
+        assert!(
+            db.activation_find(&a, &a.mac(t1.as_bytes()), 1_000 + ACTIVATION_TTL)
+                .unwrap()
+                .is_none()
+        );
+        assert_eq!(ACTIVATION_TTL, 24 * 3600);
+        assert!(activation_issue(&db, &a, "ghost", 1_000).is_err());
+        db.user_set_active(&a, "alice", false).unwrap();
+        assert!(activation_issue(&db, &a, "alice", 1_000).is_err());
+        db.user_set_active(&a, "alice", true).unwrap();
+        assert_ne!(activation_issue(&db, &a, "alice", 1_000).unwrap(), t1);
     }
 
     /// Share links have their own counters, by their whole identifier: two links that start alike never share one, and

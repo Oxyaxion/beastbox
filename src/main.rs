@@ -15,9 +15,11 @@ commands:
   serve                                     runs the server
   check-config                              checks the configuration and the data roots, then exits
   user add --tenant T NAME [--admin] [--oidc]
-                                            adds an account; its dataset <data_root>/NAME must already exist;
-                                            the password is shown only once. --oidc: no password, the account
-                                            signs in through the provider ([tenant.oidc] required)
+                                            adds an account without a password; its dataset <data_root>/NAME must
+                                            already exist; prints its activation link (single use, 24 hours): the
+                                            person chooses a password there, and binds a phone where the tenant
+                                            requires it. --oidc: the account signs in through the provider
+                                            ([tenant.oidc] required)
   user oidc-link --tenant T NAME --subject S
                                             binds the provider identity S (the `sub` given by the provider) to
                                             the account; the issuer is the tenant's configured one
@@ -25,10 +27,10 @@ commands:
   user disable --tenant T NAME              no sign-in, sessions ended, devices and public links blocked; files kept
   user enable --tenant T NAME               reverses it: devices and links answer again (sessions do not come back)
   user 2fa-reset --tenant T NAME            removes two-step verification (lost phone and recovery codes) and
-                                            ends the web sessions; set up again at the next sign-in if required
-  user passwd --tenant T NAME               changes the human password: read from standard input (one line),
-                                            generated and shown if the input is empty;
-                                            the user chooses their own at the next sign-in
+                                            ends the web sessions; where the tenant requires it, prints an
+                                            activation link to bind the new phone (with the account's password)
+  user passwd --tenant T NAME               removes the password (and a provider identity), ends the web sessions,
+                                            prints an activation link to choose a new one; devices stay
   verify --tenant T [--user U] [--path P]   read-only: files added or changed outside the application, duplicates
                                             (exit code 1 if there are discrepancies)
   rescan --tenant T [--user U] [--path P]   after a change outside the application (SSH, restore…):
@@ -349,8 +351,11 @@ fn run(cli: Cli) -> beastbox::Result<()> {
                 );
                 return Ok(());
             }
-            let pw = admin::user_add(&db, &tc, &name, is_admin)?;
-            println!("account {name} created in {t}. Password (shown only once): {pw}");
+            // The link's address first: nothing is created when it cannot be given.
+            let base = cfg.public_base(&t)?;
+            admin::user_add(&db, &tc, &name, is_admin)?;
+            println!("account {name} created in {t}, without a password.");
+            print_link(&db, &tc, &name, &base)?;
             warn_unusable_password(&cfg, &t);
             Ok(())
         }
@@ -372,18 +377,12 @@ fn run(cli: Cli) -> beastbox::Result<()> {
         Cmd::User {
             cmd: UserCmd::Passwd { tenant: t, name },
         } => {
-            let mut line = String::new();
-            std::io::stdin().read_line(&mut line)?;
-            let given = line.trim_end_matches(['\r', '\n']);
             let db = Db::open(&cfg.db_path())?;
-            let given = (!given.is_empty()).then_some(given);
-            let pw = admin::user_passwd(&db, &tenant(&t)?, &name, given, cfg.min_password, true)?
-                .map_err(|w| beastbox::Error::Invalid(w.message().replace(": nothing was changed.", ".")))?;
-            if given.is_none() {
-                println!("password of {name} in {t} (shown only once): {pw}");
-            } else {
-                println!("password of {name} in {t} changed");
-            }
+            let tc = tenant(&t)?;
+            let base = cfg.public_base(&t)?;
+            admin::user_reset(&db, &tc, &name)?;
+            println!("password of {name} in {t} removed; sessions ended.");
+            print_link(&db, &tc, &name, &base)?;
             warn_unusable_password(&cfg, &t);
             Ok(())
         }
@@ -404,10 +403,20 @@ fn run(cli: Cli) -> beastbox::Result<()> {
             cmd: UserCmd::TotpReset { tenant: t, name },
         } => {
             let db = Db::open(&cfg.db_path())?;
-            if admin::user_totp_reset(&db, &tenant(&t)?, &name)? {
+            let tc = tenant(&t)?;
+            // Where it is required, the new phone is bound only through an activation link: its address first.
+            let required = cfg
+                .tenants
+                .iter()
+                .any(|c| c.name == t && c.two_factor == beastbox::config::TwoFactor::Required);
+            let base = if required { Some(cfg.public_base(&t)?) } else { None };
+            if admin::user_totp_reset(&db, &tc, &name)? {
                 println!("two-step verification of {name} in {t} removed; sessions ended");
             } else {
                 println!("{name} in {t} had no two-step verification; sessions ended");
+            }
+            if let Some(base) = base {
+                print_link(&db, &tc, &name, &base)?;
             }
             Ok(())
         }
@@ -535,6 +544,13 @@ fn run(cli: Cli) -> beastbox::Result<()> {
 
 /// A password generated on a tenant that signs in through its provider does not open the web login: say so rather
 /// than let the administrator write it down for nothing.
+/// A new activation link for `name`, printed once with its address and its rules.
+fn print_link(db: &Db, t: &beastbox::tenant::TenantCtx, name: &str, base: &str) -> beastbox::Result<()> {
+    let token = beastbox::auth::activation_issue(db, t, name, beastbox::db::now_secs())?;
+    println!("activation link (single use, valid 24 hours; send it to {name} only): {base}/activate/{token}");
+    Ok(())
+}
+
 fn warn_unusable_password(cfg: &Config, tenant: &str) {
     let closed = cfg
         .tenants
@@ -544,8 +560,8 @@ fn warn_unusable_password(cfg: &Config, tenant: &str) {
         .is_some_and(|o| !o.password_login);
     if closed {
         println!(
-            "note: tenant {tenant} signs in through its provider (password_login = false): this password will not \
-             open the web login. Set password_login = true in [tenant.oidc] to use it."
+            "note: tenant {tenant} signs in through its provider (password_login = false): a password chosen from \
+             this link will not open the web login. Set password_login = true in [tenant.oidc] to use it."
         );
     }
 }

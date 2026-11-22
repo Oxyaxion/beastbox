@@ -231,15 +231,22 @@ fn oidc_add_link_and_recover() {
     assert!(err.contains("[tenant.oidc]"), "{err}");
     let (code, _, err) = b.run("user oidc-link --tenant beta alice --subject sub-alice", "");
     assert_ne!(code, 0, "{err}");
-    // Recovery: `user passwd` unlinks and sets a password the account can sign in with, audited.
+    // Recovery: `user passwd` unlinks (audited) and prints an activation link; nothing typed becomes a password.
     let (code, out, err) = b.run("user passwd --tenant alpha carol", "mon-mot-de-passe-42\n");
     assert_eq!(code, 0, "{err}");
-    assert!(out.contains("changed"), "{out}");
-    assert!(b.signs_in("alpha", "carol", "mon-mot-de-passe-42"));
+    assert!(out.contains("/activate/"), "{out}");
+    assert!(!b.signs_in("alpha", "carol", "mon-mot-de-passe-42"));
     let (db, t) = b.tenant("alpha");
     assert_eq!(db.user_by_oidc(&t, &issuer, "sub-carol").unwrap(), None);
-    let actions: Vec<_> = db.audit_list(&t).unwrap().into_iter().map(|r| r.action).collect();
-    assert_eq!(actions, ["oidc-link", "oidc-unlink"]);
+    // carol's own trail (alice's two `user passwd` above are recorded too).
+    let actions: Vec<_> = db
+        .audit_list(&t)
+        .unwrap()
+        .into_iter()
+        .filter(|r| r.actor.as_deref() == Some("carol"))
+        .map(|r| r.action)
+        .collect();
+    assert_eq!(actions, ["oidc-link", "oidc-unlink", "passwd-reset"]);
     // The client secret is never printed.
     for (code, out, err) in [
         b.run("user list --tenant alpha", ""),
@@ -372,18 +379,20 @@ fn user_add_refusals() {
     assert_eq!(list(&b, "alpha").lines().count(), 2);
 }
 
-/// `user add` on a real ZFS dataset: the password is printed once, works, must be replaced at the first sign-in; the
-/// folder gets its layout; the same name twice is refused; the other tenant has no carol.
+/// `user add` on a real ZFS dataset: no password (nothing signs in), an activation link printed once; the folder gets
+/// its layout; the same name twice is refused; the other tenant has no carol.
 #[test]
 fn user_add_on_a_dataset() {
     let b = Bench::new();
     let (code, out, err) = b.run("user add --tenant alpha carol", "");
     assert_eq!(code, 0, "{err}");
-    let pw = out.trim().rsplit(' ').next().unwrap().to_owned();
-    assert!(pw.len() == 32 && pw.bytes().all(|c| c.is_ascii_hexdigit()), "{out}");
-    assert!(b.signs_in("alpha", "carol", &pw));
+    assert!(
+        out.contains("/activate/") && out.contains("without a password"),
+        "{out}"
+    );
+    assert!(!b.signs_in("alpha", "carol", "") && !b.signs_in("alpha", "carol", "pw-initial-42"));
     let (db, t) = b.tenant("alpha");
-    assert_eq!(db.user_must_change(&t, "carol").unwrap(), Some(true));
+    assert_eq!(db.user_password_hash(&t, "carol").unwrap(), None);
     assert!(b.path("alpha/carol/.trash").is_dir());
     let (code, _, err) = b.run("user add --tenant alpha carol", "");
     assert!(code == 1 && err.contains("already exists"), "{err}");
@@ -405,36 +414,19 @@ fn user_list_columns() {
     assert_eq!(list(&b, "alpha"), "alice\tadmin\tdisabled\t-\nbob\tuser\tactive\t2fa\n");
 }
 
-/// `user passwd`: an empty line generates a password (printed once); a chosen one is checked by the rules (the reason
-/// is printed, nothing changes); either way the user must choose their own at the next sign-in; an unknown account
-/// fails; bob and the other tenant's alice keep their password.
+/// `user passwd`: the password is gone (nothing typed on standard input becomes one), an activation link is printed
+/// for the user to choose their own (its rules are checked on that page); an unknown account fails; bob and the other
+/// tenant's alice keep their password.
 #[test]
 fn user_passwd() {
     let b = Bench::new();
-    let (code, out, err) = b.run("user passwd --tenant alpha alice", "\n");
+    let (code, out, err) = b.run("user passwd --tenant alpha alice", "choisi-par-l-admin\n");
     assert_eq!(code, 0, "{err}");
-    let generated = out.trim().rsplit(' ').next().unwrap().to_owned();
-    assert!(out.contains("shown only once") && generated.len() == 32, "{out}");
-    assert!(b.signs_in("alpha", "alice", &generated) && !b.signs_in("alpha", "alice", "pw-initial-42"));
-    for (weak, why) in [
-        ("court", "too short"),
-        ("azertyuiopqs", "too easy"),
-        ("alice-au-soleil", "account or tenant name"),
-        (generated.as_str(), "differ from the current"),
-    ] {
-        let (code, _, err) = b.run("user passwd --tenant alpha alice", &format!("{weak}\n"));
-        assert!(code == 1 && err.contains(why), "{weak}: {err}");
-        assert!(b.signs_in("alpha", "alice", &generated), "{weak} changed something");
-    }
-    let (code, out, _) = b.run("user passwd --tenant alpha alice", "choisi-par-l-admin\n");
-    assert!(code == 0 && out.contains("changed") && !out.contains("choisi"), "{out}");
-    assert!(b.signs_in("alpha", "alice", "choisi-par-l-admin"));
+    assert!(out.contains("/activate/") && !out.contains("choisi"), "{out}");
+    assert!(!b.signs_in("alpha", "alice", "pw-initial-42") && !b.signs_in("alpha", "alice", "choisi-par-l-admin"));
     let (db, t) = b.tenant("alpha");
-    assert_eq!(db.user_must_change(&t, "alice").unwrap(), Some(true));
-    // A line ending in CRLF (a password pasted from Windows): the CR is not part of it.
-    assert_eq!(b.run("user passwd --tenant alpha alice", "autre-choix-ok\r\n").0, 0);
-    assert!(b.signs_in("alpha", "alice", "autre-choix-ok"));
-    let (code, _, err) = b.run("user passwd --tenant alpha nobody", "\n");
+    assert_eq!(db.user_password_hash(&t, "alice").unwrap(), None);
+    let (code, _, err) = b.run("user passwd --tenant alpha nobody", "");
     assert!(code == 1 && err.contains("nobody"), "{err}");
     assert!(b.signs_in("alpha", "bob", "pw-initial-42") && b.signs_in("beta", "alice", "pw-initial-42"));
 }
@@ -569,5 +561,84 @@ fn manifest_and_restore() {
         b.run("verify --tenant alpha --user alice", "").0,
         0,
         "the restored copies have their identity"
+    );
+}
+
+/// Activation links from the CLI: `user add` creates an account with no password and prints its link (the tenant's
+/// public address); `user passwd` takes the password away and prints a link; `user 2fa-reset` prints one when the
+/// tenant requires two-step verification. Without a public address (wildcard hosts only), `user add` refuses before
+/// creating anything and says what to add.
+#[test]
+fn activation_links_from_the_cli() {
+    let b = Bench::new();
+    let link = |out: &str| -> Option<String> {
+        let l = out.split_whitespace().find(|w| w.contains("/activate/"))?.to_owned();
+        let token = l.rsplit('/').next()?;
+        (token.len() == 64 && token.bytes().all(|c| c.is_ascii_hexdigit())).then_some(l)
+    };
+    let (code, out, err) = b.run("user add --tenant alpha carol", "");
+    assert_eq!(code, 0, "{err}");
+    let l = link(&out).unwrap_or_else(|| panic!("no link: {out}"));
+    assert!(l.starts_with("https://files.alpha.example/activate/"), "{l}");
+    assert!(out.contains("24"), "the validity is said: {out}");
+    let (db, t) = b.tenant("alpha");
+    assert_eq!(db.user_password_hash(&t, "carol").unwrap(), None);
+    assert!(!b.signs_in("alpha", "carol", ""));
+    // `user passwd`: no password any more, a link; what was typed on standard input is not used as a password.
+    let (code, out, err) = b.run("user passwd --tenant alpha alice", "choisi-par-admin-1\n");
+    assert_eq!(code, 0, "{err}");
+    assert!(link(&out).is_some(), "{out}");
+    assert!(!b.signs_in("alpha", "alice", "pw-initial-42") && !b.signs_in("alpha", "alice", "choisi-par-admin-1"));
+    assert!(
+        b.signs_in("beta", "alice", "pw-initial-42"),
+        "the other tenant's alice keeps hers"
+    );
+    // `user 2fa-reset`: a link only where the tenant requires it.
+    let (code, out, _) = b.run("user 2fa-reset --tenant alpha bob", "");
+    assert!(code == 0 && link(&out).is_none(), "{out}");
+    let text = std::fs::read_to_string(&b.config).unwrap();
+    std::fs::write(
+        &b.config,
+        text.replacen("name = \"alpha\"\n", "name = \"alpha\"\ntwo_factor = \"required\"\n", 1),
+    )
+    .unwrap();
+    let (code, out, err) = b.run("user 2fa-reset --tenant alpha bob", "");
+    assert_eq!(code, 0, "{err}");
+    assert!(link(&out).is_some(), "{out}");
+    assert!(
+        b.signs_in("alpha", "bob", "pw-initial-42"),
+        "2fa-reset keeps the password"
+    );
+    // A given public address is used.
+    let text = std::fs::read_to_string(&b.config).unwrap();
+    std::fs::write(
+        &b.config,
+        text.replacen(
+            "name = \"alpha\"\n",
+            "name = \"alpha\"\npublic_base_url = \"https://files.alpha.example:8443\"\n",
+            1,
+        ),
+    )
+    .unwrap();
+    let (_, out, _) = b.run("user passwd --tenant alpha bob", "");
+    assert!(
+        link(&out)
+            .unwrap()
+            .starts_with("https://files.alpha.example:8443/activate/"),
+        "{out}"
+    );
+    // Wildcard hosts only, no public address: refused before anything is created.
+    let text = std::fs::read_to_string(&b.config).unwrap();
+    let text = text
+        .replace("public_base_url = \"https://files.alpha.example:8443\"\n", "")
+        .replace("hosts = [\"files.alpha.example\"]", "hosts = [\"*.alpha.example\"]");
+    std::fs::write(&b.config, text).unwrap();
+    let (code, _, err) = b.run("user add --tenant alpha dave", "");
+    assert_ne!(code, 0);
+    assert!(err.contains("public_base_url"), "{err}");
+    let (db, t) = b.tenant("alpha");
+    assert!(
+        db.user_list(&t, 100).unwrap().iter().all(|u| u.user_id != "dave"),
+        "nothing created"
     );
 }

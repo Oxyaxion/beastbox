@@ -15,21 +15,28 @@ pub fn valid_username(u: &str) -> bool {
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'.' | b'-'))
 }
 
-/// Adds a user. The dataset `<data_root>/<user>` must exist **and be a distinct mount point**
-/// (created by the administrator on the host, §0.3): the application never runs `zfs`.
-/// Returns the generated human password (128 bits), to be shown only once.
-pub fn user_add(db: &Db, t: &TenantCtx, user: &str, admin: bool) -> Result<String> {
-    user_dataset(t, user)?;
-    let password = crate::auth::random_hex::<16>()?;
-    db.user_add(t, user, &hash(&password)?, admin)?;
-    Ok(password)
-}
-
-/// Adds an account that signs in only through a provider identity (`[tenant.oidc]`, then `user oidc-link`): no
-/// password is generated, and neither `/login` nor the Login Flow form can open it (`verify_human` refuses NULL).
-pub fn user_add_oidc(db: &Db, t: &TenantCtx, user: &str, admin: bool) -> Result<()> {
+/// Adds a user **without a password**: nothing opens it (`verify_human` refuses NULL) until its activation link
+/// (`auth::activation_issue`) gives it one — no password ever travels from the administrator to the user. The dataset
+/// `<data_root>/<user>` must exist **and be a distinct mount point** (created by the administrator on the host, §0.3):
+/// the application never runs `zfs`.
+pub fn user_add(db: &Db, t: &TenantCtx, user: &str, admin: bool) -> Result<()> {
     user_dataset(t, user)?;
     db.user_add_oidc(t, user, admin)
+}
+
+/// Adds an account that signs in through a provider identity (`[tenant.oidc]`, then `user oidc-link`): the same
+/// account without a password as `user_add`.
+pub fn user_add_oidc(db: &Db, t: &TenantCtx, user: &str, admin: bool) -> Result<()> {
+    user_add(db, t, user, admin)
+}
+
+/// `beastbox user passwd`: the account loses its password (and its provider identity, audited), its web sessions end;
+/// it gets a new one from an activation link. Two-step verification and devices stay.
+pub fn user_reset(db: &Db, t: &TenantCtx, user: &str) -> Result<()> {
+    if !valid_username(user) || !db.user_reset_for_activation(t, user)? {
+        return Err(Error::Invalid(format!("unknown account in {}: {user}", t.name())));
+    }
+    Ok(())
 }
 
 /// `user oidc-link`: binds a provider identity to an account. `issuer` is the tenant's configured one (byte for byte,

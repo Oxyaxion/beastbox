@@ -176,8 +176,10 @@ fn audit(url: &str, html: &str) -> Result<BTreeSet<String>, Vec<String>> {
                 in_form_post = (attr(t, "method").as_deref() == Some("post")).then_some(false);
             }
             ("form", true) => {
-                // CSRF on every POST form, except those without a session: login, a link's password.
-                let public = form_action == "/login" || form_action.starts_with("/s/");
+                // CSRF on every POST form, except those without a session: login, a link's password, an activation
+                // link (its 256-bit token in the address is what a forged request would lack).
+                let public =
+                    form_action == "/login" || form_action.starts_with("/s/") || form_action.starts_with("/activate/");
                 if in_form_post == Some(false) && !public {
                     bad.push(format!("{url}: POST form to {form_action} without csrf"));
                 }
@@ -341,9 +343,56 @@ async fn every_page_passes_the_audit() {
     ] {
         pages.push((u.into(), call(app, "GET", u, &c, "").await.2));
     }
+    let qr = call(
+        app,
+        "POST",
+        "/web/account/qr",
+        &c,
+        &format!("csrf={csrf}&password=pw-alice"),
+    )
+    .await
+    .2;
+    assert!(qr.contains("<svg role=\"img\""), "the QR code page itself is audited");
+    pages.push(("/web/account/qr".into(), qr));
+    // Activation pages: an account with a password (asked again); one without (to choose); on a tenant that requires
+    // two-step verification, the phone, then the recovery codes; and the page a session is held on there.
+    let alpha = e.state.registry.by_name("alpha").unwrap();
+    let now = crate::db::now_secs();
+    let tok = crate::auth::activation_issue(&e.state.db, &alpha, "alice", now).unwrap();
     pages.push((
-        "/web/account/qr".into(),
-        call(app, "POST", "/web/account/qr", &c, &format!("csrf={csrf}"))
+        "/activate (current)".into(),
+        call(app, "GET", &format!("/activate/{tok}"), &[A], "").await.2,
+    ));
+    let r = crate::http::tests::env_with(crate::http::Settings {
+        two_factor: vec![("alpha".into(), crate::config::TwoFactor::Required)],
+        ..Default::default()
+    });
+    let ra = r.state.registry.by_name("alpha").unwrap();
+    std::fs::create_dir(r.a_root.path().join("carol")).unwrap();
+    crate::fs::Root::open_dir(&r.a_root.path().join("carol"))
+        .unwrap()
+        .ensure_layout()
+        .unwrap();
+    r.state.db.user_add_oidc(&ra, "carol", false).unwrap();
+    let tok = crate::auth::activation_issue(&r.state.db, &ra, "carol", now).unwrap();
+    let link = format!("/activate/{tok}");
+    pages.push((
+        "/activate (choose, phone)".into(),
+        call(&r.app, "GET", &link, &[A], "").await.2,
+    ));
+    let s = crate::auth::totp::setup_secret(&ra, &tok);
+    let code = format!(
+        "{:06}",
+        crate::auth::totp::hotp(&s, crate::auth::totp::step(crate::auth::totp::now()))
+    );
+    let body = format!("new=mon-propre-secret-9&again=mon-propre-secret-9&code={code}");
+    let done = call(&r.app, "POST", &link, &[A], &body).await.2;
+    assert!(done.contains("<li><code>"), "the recovery codes page itself is audited");
+    pages.push(("/activate (recovery codes)".into(), done));
+    let (rc, _) = login(&r, A, "pw-alice").await;
+    pages.push((
+        "/web/2fa-setup".into(),
+        call(&r.app, "GET", "/web/2fa-setup", &[A, ("cookie", rc.as_str())], "")
             .await
             .2,
     ));
