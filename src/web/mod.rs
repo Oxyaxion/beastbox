@@ -323,27 +323,26 @@ pub(crate) fn free_names(name: &str, is_dir: bool) -> impl Iterator<Item = Strin
     std::iter::once(name.to_owned()).chain((2..=99).map(move |i| format!("{stem} ({i}){ext}")))
 }
 
-/// Copies `from` to the first of `names` that is free (the check is the copy itself: no race with another writer);
-/// the source's own name is passed over. False if none fits (taken up to 99, too long), or the copy failed (folder
-/// into itself, quota: the partial copy is then in the trash, see `Root::copy`).
-fn copy_to_free_name<E>(
-    root: &crate::fs::Root,
+/// Copies or moves `from` (`op`: `Root::copy` or `Root::rename`, never over anything) to the first of `names` that is
+/// free, and returns where it went; the source's own name is passed over. `None` if none fits (taken up to 99, too long), or the operation failed
+/// (folder into itself, missing source, quota: a partial copy is then in the trash, see `Root::copy`).
+fn to_free_name<E>(
     from: &SafePath,
     names: impl Iterator<Item = Result<SafePath, E>>,
-    by: &str,
-) -> bool {
+    mut op: impl FnMut(&SafePath) -> io::Result<bool>,
+) -> Option<SafePath> {
     for t in names {
-        let Ok(t) = t else { return false };
+        let Ok(t) = t else { return None };
         if t == *from {
             continue;
         }
-        match root.copy(from, &t, false, by) {
-            Ok(_) => return true,
+        match op(&t) {
+            Ok(_) => return Some(t),
             Err(e) if crate::fs::is_refused(&e, crate::fs::Refused::Precondition) => {}
-            Err(_) => return false,
+            Err(_) => return None,
         }
     }
-    false
+    None
 }
 
 /// Page of a folder ("" = root) of the user's space; with `item`, the page holding it, marked and scrolled to.
@@ -1089,8 +1088,7 @@ struct FilesPage {
     /// Link that shows or hides the hidden files, and whether they are shown.
     hidden_toggle: String,
     show_hidden: bool,
-    notice: String,
-    notice_error: bool,
+    notice: BulkNotice,
 }
 
 async fn files_root(s: State<Arc<App>>, t: Extension<TenantCtx>, q: Uri, h: HeaderMap) -> Response {
@@ -1101,25 +1099,75 @@ async fn files(s: State<Arc<App>>, t: Extension<TenantCtx>, Path(p): Path<String
     files_at(s, t, p, q, h).await
 }
 
-/// Message after a bulk action (`?op=…&ok=N&ko=M`), and whether it is a partial failure.
-fn bulk_notice(lang: Lang, q: &Uri) -> (String, bool) {
+/// A link of the message after a bulk action.
+struct NoticeLink {
+    label: String,
+    url: String,
+}
+
+/// Message after a bulk action (`?op=…&ok=N&ko=M`, and for a move or a copy `&to=<folder>`, plus `&name=<name>` when a
+/// single item went there): `item` (its new name, opening the destination with it marked), `text`, `dest` (the
+/// destination folder), `end` (the failures); `error` for a partial failure. `to` and `name` are checked like any path.
+#[derive(Default)]
+struct BulkNotice {
+    item: Option<NoticeLink>,
+    text: String,
+    dest: Option<NoticeLink>,
+    end: String,
+    error: bool,
+}
+
+fn bulk_notice(lang: Lang, q: &Uri) -> BulkNotice {
     let n = |k: &str| param(q, k).and_then(|v| v.parse::<usize>().ok()).unwrap_or(0);
     let (ok, ko) = (n("ok"), n("ko"));
-    let (en, fr) = match param(q, "op").as_deref() {
+    let op = param(q, "op");
+    let (en, fr) = match op.as_deref() {
         Some("delete") => ("moved to the trash", "mis à la corbeille"),
         Some("move") if ok > 1 => ("moved", "déplacés"),
         Some("move") => ("moved", "déplacé"),
         Some("copy" | "duplicate") if ok > 1 => ("copied", "copiés"),
         Some("copy" | "duplicate") => ("copied", "copié"),
-        _ => return (String::new(), false),
+        _ => return BulkNotice::default(),
     };
+    // Destination: a folder path ("" = root) that `SafePath` accepts; only for a move or a copy that did something.
+    let to = match (op.as_deref(), param(q, "to")) {
+        (Some("delete"), _) | (_, None) => None,
+        _ if ok == 0 => None,
+        (_, Some(t)) if t.is_empty() => Some(String::new()),
+        (_, Some(t)) => SafePath::new(&t).ok().map(|p| p.as_str().to_owned()),
+    };
+    let name = param(q, "name").filter(|n| ok == 1 && !n.contains('/') && SafePath::new(n).is_ok());
     let s = |n: usize| if n > 1 { "s" } else { "" };
-    let mut m = match lang {
-        Lang::En => format!("{ok} item{} {en}.", s(ok)),
-        Lang::Fr => format!("{ok} élément{} {fr}.", s(ok)),
+    let (item, dest, text) = match &to {
+        Some(to) => (
+            name.map(|n| NoticeLink {
+                url: folder_link(to, Some(&n)),
+                label: n,
+            }),
+            Some(NoticeLink {
+                label: to
+                    .rsplit('/')
+                    .next()
+                    .filter(|l| !l.is_empty())
+                    .unwrap_or(lang.t("My files"))
+                    .to_owned(),
+                url: folder_link(to, None),
+            }),
+            None,
+        ),
+        None => (None, None, Some(())),
     };
+    let text = match (lang, &item, text) {
+        (Lang::En, Some(_), None) => format!("{en} to"),
+        (Lang::Fr, Some(_), None) => format!("{fr} vers"),
+        (Lang::En, None, None) => format!("{ok} item{} {en} to", s(ok)),
+        (Lang::Fr, None, None) => format!("{ok} élément{} {fr} vers", s(ok)),
+        (Lang::En, _, Some(())) => format!("{ok} item{} {en}", s(ok)),
+        (Lang::Fr, _, Some(())) => format!("{ok} élément{} {fr}", s(ok)),
+    };
+    let mut end = ".".to_owned();
     if ko > 0 {
-        m.push_str(&match lang {
+        end.push_str(&match lang {
             Lang::En => format!(
                 " {ko} item{} not processed: name already taken at the destination, or item not found.",
                 s(ko)
@@ -1131,7 +1179,13 @@ fn bulk_notice(lang: Lang, q: &Uri) -> (String, bool) {
             ),
         });
     }
-    (m, ko > 0)
+    BulkNotice {
+        item,
+        text,
+        dest,
+        end,
+        error: ko > 0,
+    }
 }
 
 async fn files_at(
@@ -1260,7 +1314,7 @@ async fn files_at(
     let (prev, next) = pager(&format!("sort={sort}&desc={}{view}{n}&", u8::from(desc)), page, pages);
     let first = if total == 0 { 0 } else { page * per + 1 };
     let last = (first + rows.len()).saturating_sub(1).max(first);
-    let (notice, notice_error) = bulk_notice(lang, &q);
+    let notice = bulk_notice(lang, &q);
     let (sort_keys, sort_dirs) = sort_menu(lang, sort, desc, &format!("{view}{n}"));
     let page = FilesPage {
         title: path
@@ -1307,7 +1361,6 @@ async fn files_at(
         view_list: format!("?sort={sort}&desc={}&view=list{n}", u8::from(desc)),
         view_grid: format!("?sort={sort}&desc={}&view=grid{n}", u8::from(desc)),
         notice,
-        notice_error,
         nav: Nav {
             dir: path.as_ref().map(|p| p.as_str().to_owned()).unwrap_or_default(),
             ..nav(&w)
@@ -1862,7 +1915,8 @@ async fn bulk(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h
         let u = w.u.clone();
         return zip_response(lang, move || u.root(), ZipOf::Items(items), top).await;
     }
-    // Copies: never over anything (first free name, see `free_names`); "duplicate" is a copy in this very folder.
+    // Copies and moves: never over anything, the first free name (see `free_names`); "duplicate" is a copy in this very
+    // folder.
     let copy = matches!(op.as_str(), "copy" | "duplicate");
     let dest = match op.as_str() {
         "delete" => None,
@@ -1896,9 +1950,12 @@ async fn bulk(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h
         );
     }
     let (u, d2) = (w.u.clone(), dir.clone());
-    let r = blocking(move || -> io::Result<(usize, usize)> {
+    let to_q = dest
+        .as_ref()
+        .map(|d| d.as_ref().map_or(String::new(), |p| p.as_str().to_owned()));
+    let r = blocking(move || -> io::Result<(usize, usize, Option<String>)> {
         let root = u.root()?;
-        let (mut ok, mut ko) = (0, 0);
+        let (mut ok, mut ko, mut last) = (0, 0, None);
         match dest {
             None => {
                 let done = dav::write::journaled(&u, &root, &[d2.as_ref()], || {
@@ -1924,19 +1981,19 @@ async fn bulk(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h
                             Some(t) => SafePath::new(&format!("{}/{n}", t.as_str())),
                             None => SafePath::new(n),
                         };
-                        if copy {
-                            let is_dir = root.meta(Some(p)).is_ok_and(|m| m.is_dir);
-                            if copy_to_free_name(&root, p, free_names(name, is_dir).map(|n| at(&n)), u.user()) {
-                                ok += 1
-                            } else {
-                                ko += 1
+                        let is_dir = root.meta(Some(p)).is_ok_and(|m| m.is_dir);
+                        let names = free_names(name, is_dir).map(|n| at(&n));
+                        let done = if copy {
+                            to_free_name(p, names, |t| root.copy(p, t, false, u.user()))
+                        } else {
+                            to_free_name(p, names, |t| root.rename(p, t, false, u.user()))
+                        };
+                        match done {
+                            Some(t) => {
+                                ok += 1;
+                                last = Some(t.split_parent().1.to_owned());
                             }
-                            continue;
-                        }
-                        // Never an overwrite: a name already taken at the destination is counted as a failure.
-                        match at(name).map(|t| root.rename(p, &t, false, u.user())) {
-                            Ok(Ok(_)) => ok += 1,
-                            _ => ko += 1,
+                            None => ko += 1,
                         }
                     }
                     Ok(())
@@ -1944,13 +2001,23 @@ async fn bulk(State(app): State<Arc<App>>, Extension(t): Extension<TenantCtx>, h
                 done?;
             }
         }
-        Ok((ok, ko))
+        Ok((ok, ko, last))
     })
     .await;
     match r {
-        Ok(Ok((ok, ko))) => {
+        Ok(Ok((ok, ko, last))) => {
             tracing::info!(tenant = t.name(), user = w.u.user(), op, ok, ko, "bulk action");
-            see_other(&format!("{back}?op={op}&ok={ok}&ko={ko}"))
+            // Where it went, for the message's links (`bulk_notice`): the folder, and the new name of a single item.
+            use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+            let q = |v: &str| utf8_percent_encode(v, NON_ALPHANUMERIC).to_string();
+            let mut extra = match to_q {
+                Some(d) if ok > 0 => format!("&to={}", q(&d)),
+                _ => String::new(),
+            };
+            if let (1, Some(n), false) = (ok, &last, extra.is_empty()) {
+                extra.push_str(&format!("&name={}", q(n)));
+            }
+            see_other(&format!("{back}?op={op}&ok={ok}&ko={ko}{extra}"))
         }
         Ok(Err(e)) => io_page(lang, &e),
         Err(r) => r,

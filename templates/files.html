@@ -25,7 +25,7 @@
     </div>
   </div>
 </div>
-{% if !notice.is_empty() %}<p class="{% if notice_error %}alerte{% else %}info{% endif %}" role="{% if notice_error %}alert{% else %}status{% endif %}">{{ notice }}</p>{% endif %}
+{% if !notice.text.is_empty() %}<p class="{% if notice.error %}alerte{% else %}info{% endif %}" role="{% if notice.error %}alert{% else %}status{% endif %}">{% if let Some(i) = notice.item %}« <a href="{{ i.url }}">{{ i.label }}</a> » {% endif %}{{ notice.text }}{% if let Some(d) = notice.dest %} <a href="{{ d.url }}">{{ d.label }}</a>{% endif %}{{ notice.end }}</p>{% endif %}
 
 {% if dir.is_empty() %}<details class="activite js" data-src="/web/activity" data-activite open aria-labelledby="t-activite">
   <summary><h2 id="t-activite">{{ lang.t("Recent activity") }}</h2></summary>

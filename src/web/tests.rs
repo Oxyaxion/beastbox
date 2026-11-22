@@ -1133,7 +1133,7 @@ async fn bulk_actions_without_javascript() {
     assert!(std::fs::read_dir(disk(&e).join(".trash")).unwrap().count() >= 50);
     let (_, _, page) = call(app, "GET", "/web/files/Lot/?op=delete&ok=50&ko=0", &c, "").await;
     assert!(page.contains("50 items moved to the trash."));
-    // Bulk move: a name already taken at the destination is not overwritten (counted as a failure).
+    // Bulk move: a name already taken at the destination is not overwritten, the item takes the first free name.
     std::fs::write(d.join("Archive/f55.txt"), b"deja la").unwrap();
     let (_, h, _) = call(
         app,
@@ -1143,9 +1143,13 @@ async fn bulk_actions_without_javascript() {
         &format!("csrf={csrf}&dir=Lot&op=move&dest=Lot%2FArchive{}", items(50..60)),
     )
     .await;
-    assert_eq!(h["location"].to_str().unwrap(), "/web/files/Lot/?op=move&ok=9&ko=1");
+    assert_eq!(
+        h["location"].to_str().unwrap(),
+        "/web/files/Lot/?op=move&ok=10&ko=0&to=Lot%2FArchive"
+    );
     assert_eq!(std::fs::read(d.join("Archive/f55.txt")).unwrap(), b"deja la");
-    assert!(d.join("f55.txt").exists() && d.join("Archive/f59.txt").exists());
+    assert_eq!(std::fs::read(d.join("Archive/f55 (2).txt")).unwrap(), b"55");
+    assert!(!d.join("f55.txt").exists() && d.join("Archive/f59.txt").exists());
     // ZIP of the selection only.
     let body = format!("csrf={csrf}&dir=Lot%2FArchive&op=zip&item=f50.txt&item=f51.txt");
     let (s, h, zipped) = {
@@ -1204,11 +1208,11 @@ async fn bulk_actions_without_javascript() {
         "POST",
         "/web/bulk",
         &c,
-        &format!("csrf={csrf}&dir=Lot&op=move&dest=..%2Fx&item=f55.txt"),
+        &format!("csrf={csrf}&dir=Lot&op=move&dest=..%2Fx&item=Archive"),
     )
     .await;
     assert_eq!(s, StatusCode::NOT_FOUND);
-    assert!(d.join("f55.txt").exists());
+    assert!(d.join("Archive/f55 (2).txt").exists());
 }
 
 /// J3b exit criterion: gallery (previous / next image, keyboard-usable links), grid and icons.
@@ -1387,7 +1391,10 @@ async fn folder_tree_and_move_picker() {
         &format!("csrf={csrf}&dir=A&op=move&dest=%2F&item=f.txt"),
     )
     .await;
-    assert_eq!(h["location"].to_str().unwrap(), "/web/files/A/?op=move&ok=1&ko=0");
+    assert_eq!(
+        h["location"].to_str().unwrap(),
+        "/web/files/A/?op=move&ok=1&ko=0&to=&name=f%2Etxt"
+    );
     assert!(root.join("f.txt").exists());
 }
 
@@ -4283,7 +4290,7 @@ async fn copy_and_duplicate_from_the_web() {
     let (s, h, _) = bulk(format!("csrf={csrf}&dir=Docs&op=copy&dest=%2FDest&item=a.txt&item=Sub")).await;
     assert_eq!(
         (s, h["location"].to_str().unwrap()),
-        (StatusCode::SEE_OTHER, "/web/files/Docs/?op=copy&ok=2&ko=0")
+        (StatusCode::SEE_OTHER, "/web/files/Docs/?op=copy&ok=2&ko=0&to=Dest")
     );
     assert_eq!(std::fs::read(d.join("Dest/a.txt")).unwrap(), b"already here");
     assert_eq!(std::fs::read(d.join("Dest/a (2).txt")).unwrap(), b"A");
@@ -4299,7 +4306,7 @@ async fn copy_and_duplicate_from_the_web() {
         .await;
         assert_eq!(
             (s, h["location"].to_str().unwrap()),
-            (StatusCode::SEE_OTHER, "/web/files/Docs/?op=duplicate&ok=3&ko=0")
+            (StatusCode::SEE_OTHER, "/web/files/Docs/?op=duplicate&ok=3&ko=0&to=Docs")
         );
     }
     for p in [
@@ -4319,7 +4326,10 @@ async fn copy_and_duplicate_from_the_web() {
     assert!(page.contains("3 items copied."), "notice");
     // "Copy here" to the folder the selection is in: the same as duplicate.
     let (_, h, _) = bulk(format!("csrf={csrf}&dir=Docs&op=copy&dest=%2FDocs&item=a.txt")).await;
-    assert_eq!(h["location"].to_str().unwrap(), "/web/files/Docs/?op=copy&ok=1&ko=0");
+    assert_eq!(
+        h["location"].to_str().unwrap(),
+        "/web/files/Docs/?op=copy&ok=1&ko=0&to=Docs&name=a%20%284%29%2Etxt"
+    );
     assert!(d.join("Docs/a (4).txt").exists());
 
     // Move into the folder it is already in: refused, said so, nothing moved.
@@ -4371,6 +4381,157 @@ async fn copy_and_duplicate_from_the_web() {
         "root marked at the root"
     );
     assert!(!home.contains("value=\"/Docs\" form=\"selection\" data-ici>"));
+}
+
+/// Moving onto a taken name: the item keeps its content and identity under the first free name (`Photos (2)`, then
+/// `(3)`; a file keeps its extension last), what was there is untouched; nothing free up to 99, a folder into itself,
+/// a missing item: refused, nothing moved; the other tenant's session moves nothing.
+#[tokio::test]
+async fn move_onto_a_taken_name_takes_the_next_free_one() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let d = disk(&e).join("M");
+    for p in ["Photos", "B/Photos", "C/Photos", "Plein"] {
+        std::fs::create_dir_all(d.join(p)).unwrap();
+    }
+    std::fs::write(d.join("Photos/x.jpg"), b"moi").unwrap();
+    std::fs::write(d.join("B/Photos/x.jpg"), b"deja la").unwrap();
+    std::fs::write(d.join("a.txt"), b"a").unwrap();
+    std::fs::write(d.join("B/a.txt"), b"autre").unwrap();
+    let ino = |p: &str| std::os::unix::fs::MetadataExt::ino(&std::fs::metadata(d.join(p)).unwrap());
+    let before = ino("Photos/x.jpg");
+    let mv = |dir: &str, dest: &str, item: &str| {
+        let body = format!("csrf={csrf}&dir={dir}&op=move&dest={dest}&item={item}");
+        async move {
+            call(app, "POST", "/web/bulk", &c, &body).await.1["location"]
+                .to_str()
+                .unwrap()
+                .to_owned()
+        }
+    };
+    assert_eq!(
+        mv("M", "M%2FB", "Photos").await,
+        "/web/files/M/?op=move&ok=1&ko=0&to=M%2FB&name=Photos%20%282%29"
+    );
+    assert_eq!(std::fs::read(d.join("B/Photos (2)/x.jpg")).unwrap(), b"moi");
+    assert_eq!(ino("B/Photos (2)/x.jpg"), before, "moved, not copied");
+    assert_eq!(std::fs::read(d.join("B/Photos/x.jpg")).unwrap(), b"deja la");
+    assert!(!d.join("Photos").exists());
+    // The message: the new name opens the destination with the item marked, the destination is a link too.
+    let (_, _, p) = call(
+        app,
+        "GET",
+        "/web/files/M/?op=move&ok=1&ko=0&to=M%2FB&name=Photos%20%282%29",
+        &c,
+        "",
+    )
+    .await;
+    assert!(p.contains("« <a href=\"/web/files/M/B/?voir=Photos%20%282%29#vise\">Photos (2)</a> » moved to <a href=\"/web/files/M/B/\">B</a>."), "{p}");
+    let (_, _, p) = call(app, "GET", "/web/files/M/B/?voir=Photos%20%282%29", &c, "").await;
+    assert!(p.contains("id=\"vise\"") && p.contains("data-name=\"Photos (2)\""));
+    // Several items: the count and the destination; the root is named; failures said after.
+    let (_, _, p) = call(app, "GET", "/web/files/M/?op=copy&ok=2&ko=1&to=", &c, "").await;
+    assert!(
+        p.contains("2 items copied to <a href=\"/web/files/\">My files</a>. 1 item not processed"),
+        "{p}"
+    );
+    // Hostile or meaningless values: no link, the plain count (only the message is looked at).
+    let banner = |p: &str| {
+        p.split("role=\"status\">")
+            .nth(1)
+            .and_then(|b| b.split("</p>").next())
+            .unwrap_or("")
+            .to_owned()
+    };
+    for q in [
+        "to=..%2Fbeta&name=x",
+        "to=.trash&name=x",
+        "to=B&name=..%2Fx",
+        "to=B&name=a%2Fb",
+    ] {
+        let (_, _, p) = call(app, "GET", &format!("/web/files/M/?op=move&ok=1&ko=0&{q}"), &c, "").await;
+        assert!(
+            !p.contains("..%2F") && !p.contains("/web/files/.trash") && !p.contains("voir=a%2Fb"),
+            "{q}"
+        );
+    }
+    let (_, _, p) = call(app, "GET", "/web/files/M/?op=move&ok=1&ko=0&to=..%2Fbeta", &c, "").await;
+    assert_eq!(banner(&p), "1 item moved.");
+    let (_, _, p) = call(app, "GET", "/web/files/M/?op=delete&ok=1&ko=0&to=B&name=x", &c, "").await;
+    assert_eq!(banner(&p), "1 item moved to the trash.");
+    // Next one: (3); a file: before its extension.
+    assert_eq!(
+        mv("M%2FC", "M%2FB", "Photos").await,
+        "/web/files/M/C/?op=move&ok=1&ko=0&to=M%2FB&name=Photos%20%283%29"
+    );
+    assert!(d.join("B/Photos (3)").is_dir());
+    assert_eq!(
+        mv("M", "M%2FB", "a.txt").await,
+        "/web/files/M/?op=move&ok=1&ko=0&to=M%2FB&name=a%20%282%29%2Etxt"
+    );
+    assert_eq!(std::fs::read(d.join("B/a (2).txt")).unwrap(), b"a");
+    assert_eq!(std::fs::read(d.join("B/a.txt")).unwrap(), b"autre");
+    // Every name taken up to 99: refused, nothing moved, nothing overwritten.
+    std::fs::write(d.join("n.txt"), b"n").unwrap();
+    std::fs::write(d.join("Plein/n.txt"), b"0").unwrap();
+    for i in 2..=99 {
+        std::fs::write(d.join(format!("Plein/n ({i}).txt")), b"0").unwrap();
+    }
+    assert_eq!(mv("M", "M%2FPlein", "n.txt").await, "/web/files/M/?op=move&ok=0&ko=1");
+    assert!(d.join("n.txt").exists() && std::fs::read_dir(d.join("Plein")).unwrap().count() == 99);
+    // A folder into itself, a missing item: refused (no numbered attempt makes them work).
+    assert_eq!(mv("M", "M%2FB%2FPhotos", "B").await, "/web/files/M/?op=move&ok=0&ko=1");
+    assert_eq!(mv("M", "M%2FB", "absent").await, "/web/files/M/?op=move&ok=0&ko=1");
+    assert!(d.join("B/Photos").is_dir() && !d.join("B/absent").exists() && !d.join("B/absent (2)").exists());
+    // Other tenant: alpha's session moves nothing there.
+    let body = format!("csrf={csrf}&dir=M&op=move&dest=M%2FB&item=n.txt");
+    let (_, h, _) = call(app, "POST", "/web/bulk", &[B, ("cookie", cookie.as_str())], &body).await;
+    assert!(
+        h.get("location")
+            .is_none_or(|l| !l.to_str().unwrap().contains("op=move"))
+    );
+    assert!(d.join("n.txt").exists() && !d.join("B/n.txt").exists());
+}
+
+proptest::proptest! {
+    /// Moving onto any set of taken names: never an overwrite; the item lands at the first free name of `free_names`
+    /// (or stays put if none), with its content; what was there is unchanged.
+    #[test]
+    fn move_takes_the_first_free_name(taken in proptest::collection::btree_set(0usize..6, 0..6), dir: bool) {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = crate::fs::Root::open_dir(tmp.path()).unwrap();
+        root.ensure_layout().unwrap();
+        let name = if dir { "Photos" } else { "a.txt" };
+        let all: Vec<String> = super::free_names(name, dir).take(6).collect();
+        let p = |s: &str| SafePath::new(s).unwrap();
+        root.mkdir(&p("dest")).unwrap();
+        for &i in &taken {
+            root.atomic_write(&p(&format!("dest/{}", all[i])), &mut &b"deja"[..]).unwrap();
+        }
+        if dir {
+            root.mkdir(&p(name)).unwrap();
+            root.atomic_write(&p(&format!("{name}/x")), &mut &b"moi"[..]).unwrap();
+        } else {
+            root.atomic_write(&p(name), &mut &b"moi"[..]).unwrap();
+        }
+        let names = all.iter().map(|n| SafePath::new(&format!("dest/{n}")));
+        let moved = super::to_free_name(&p(name), names, |t| root.rename(&p(name), t, false, "alice"));
+        let free = (0..6).find(|i| !taken.contains(i));
+        proptest::prop_assert_eq!(moved.map(|t| t.as_str().to_owned()), free.map(|i| format!("dest/{}", all[i])));
+        for &i in &taken {
+            proptest::prop_assert_eq!(std::fs::read(tmp.path().join("dest").join(&all[i])).unwrap(), b"deja");
+        }
+        if let Some(i) = free {
+            let at = tmp.path().join("dest").join(&all[i]);
+            let got = std::fs::read(if dir { at.join("x") } else { at }).unwrap();
+            proptest::prop_assert_eq!(got, b"moi");
+            proptest::prop_assert!(!tmp.path().join(name).exists());
+        } else {
+            proptest::prop_assert!(tmp.path().join(name).exists());
+        }
+    }
 }
 
 /// Names a copy tries: the name first, then numbered up to 99; a file keeps a real extension last, a folder or a name
