@@ -622,6 +622,9 @@ const dnd = (() => {
   const grab = (e, items) => {
     dragged = items;
     e.dataTransfer.effectAllowed = "move";
+    // A link's own data (its URL) dropped: otherwise Chrome takes it for a link to open, beside the page (split view)
+    // when the pointer nears the window's edge, where the tree is.
+    e.dataTransfer.clearData();
     e.dataTransfer.setData("text/plain", items.map((x) => x.name).join("\n"));
     const box = document.createElement("div"), tag = document.createElement("span"), name = document.createElement("span");
     box.className = items.length > 1 ? "glisse pile" : "glisse";
