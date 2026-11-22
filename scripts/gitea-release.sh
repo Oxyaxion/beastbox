@@ -14,7 +14,8 @@ bin=target/ci/beastbox
 [ -x "$bin" ] || die "no release binary in $bin"
 file "$bin" | grep -q 'FreeBSD' || die "$bin is not a FreeBSD binary"
 strings "$bin" | grep -qE "beastbox/$v([^0-9.]|\$)" || die "$bin is not version $v"
-git ls-remote --exit-code --tags origin "refs/tags/v$v" >/dev/null || die "tag v$v is not on origin"
+# Through the push address (SSH, authenticated): the check also works while the repository is private.
+git ls-remote --exit-code --tags "$(git remote get-url --push origin)" "refs/tags/v$v" >/dev/null || die "tag v$v is not on origin"
 
 # https://host/owner/repo(.git) → https://host/api/v1/repos/owner/repo
 url=$(git remote get-url origin | sed -E 's#\.git$##')
