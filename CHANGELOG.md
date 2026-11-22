@@ -4,6 +4,47 @@ One entry per release, newest first. Each release is a `vX.Y.Z` tag; the tag ann
 **Before upgrading** (anything that needs action or that clients will notice), then Changed, Added, Fixed, Security. Details are
 in `git log vX.Y.Z-1..vX.Y.Z`.
 
+## 0.16.0 — 2026-11-22
+
+### Before upgrading
+- **Hidden files** (name starting with `.`) are **no longer shown** in the web list, grid and tree by default; the new
+  "Show hidden files" link shows them (remembered a year per browser). WebDAV, sync clients, search and public share
+  links still see everything.
+- **Page size**: 50 entries per page by default (was 500); sizes offered 20, 50, 100, 500, 1000, from 21 entries. A
+  remembered 200 falls back to 50. Public share listings keep 500.
+- **Moving onto a taken name** (Move dialog and drag and drop) now succeeds under the next free name (`Photos (2)`,
+  `a (2).txt`) instead of failing; nothing is ever overwritten.
+
+### Added
+- **Sort by type**, and a **Sort menu** in both the list and the grid (the grid had no sort): name, size, modified,
+  type, tags, both directions. Type: folders, then image, video, audio, pdf, doc, sheet, md, text, json, code, archive,
+  others; then extension, then name.
+- After a move or a copy, the message says where it went: `« Photos (2) » moved to B.` — the name opens the
+  destination with the item marked, the destination is a link.
+- **Spring-loaded tree folders**: while dragging, a closed folder of the tree held 0.7 s opens.
+- **Files with no extension** (`README`, `hosts`, `.bashrc`) are shown and edited when their content is plain text
+  (UTF-8, no control character but tab and line ends).
+
+### Changed
+- Drag and drop moves through the Move dialog's form (one rule, the same message); the page reloads to show it.
+
+### Fixed
+- Dragging a folder or a file towards the tree no longer makes Chrome offer a split view (the drag carried the link's
+  URL).
+
+### Security
+- Saving a file with no extension checks its current content again: a binary file is never replaced by text.
+- The move/copy message's `to` and `name` parameters are checked like any path: a hostile value gives no link.
+
+### Tests
+- End to end: sort by type in both views (menu state, links keeping the view, unknown key), hidden files (list, grid,
+  tree, cookie, `voir=`, a hidden folder by its address), page sizes and the 20/21 boundary, a move onto a taken name
+  (numbering, identity kept, refusals, the message and its links, hostile values), the drag-and-drop form, text files
+  with no extension (eight kinds of content, a binary never replaced); each with the other tenant.
+- Property tests: the type order is total with folders first; hiding removes exactly the dot names; a move lands at the
+  first free name and overwrites nothing; plain-text detection.
+- JavaScript (`node --test`): the drag-and-drop form, following a folder moved under a new name, spring-loaded timers.
+
 ## 0.15.0 — 2026-11-20
 
 ### Before upgrading
