@@ -6,3 +6,4 @@ debogage
 /fuzz/coverage
 /CLAUDE.local.md
 /scripts/local.env
+__pycache__/
