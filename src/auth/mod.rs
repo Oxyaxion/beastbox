@@ -192,6 +192,13 @@ impl UserCtx {
     }
 }
 
+/// Equality of a secret and a value received, in constant time (no timing hint of how many bytes match); a length
+/// difference answers at once (lengths are not secret).
+pub(crate) fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    use subtle::ConstantTimeEq;
+    a.ct_eq(b).into()
+}
+
 pub(crate) fn hex(b: &[u8]) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
 }
@@ -416,7 +423,7 @@ pub fn share_pass_ok(t: &TenantCtx, share_id: &str, value: &str, now: i64) -> bo
         return false;
     };
     let Ok(until) = until.parse::<i64>() else { return false };
-    until > now && share_pass(t, share_id, until) == value
+    until > now && constant_time_eq(share_pass(t, share_id, until).as_bytes(), value.as_bytes())
 }
 
 /// Value of the cookie marking a download already counted: this link, this file (relative to the link), until `until`.
@@ -434,7 +441,11 @@ pub fn share_download_ok(t: &TenantCtx, share_id: &str, path: &str, value: &str,
         return false;
     };
     let Ok(until) = until.parse::<i64>() else { return false };
-    until > now && share_download_pass(t, share_id, path, until) == value
+    until > now
+        && constant_time_eq(
+            share_download_pass(t, share_id, path, until).as_bytes(),
+            value.as_bytes(),
+        )
 }
 
 /// argon2id digest of a link password (concurrency bounded by the caller).
@@ -746,6 +757,53 @@ pub(crate) mod tests {
         assert!(!share_pass_ok(&a, "id2", &c, 999)); // other link
         assert!(!share_pass_ok(&b, "id1", &c, 999)); // other tenant
         assert!(!share_pass_ok(&a, "id1", "2000.00", 999)); // forged expiry
+        // One character changed, cut, or added: refused (compared in constant time, whole value).
+        for f in [
+            forge_last(&c),
+            c.get(..c.len() - 1).unwrap().to_owned(),
+            format!("{c}0"),
+            String::new(),
+        ] {
+            assert!(!share_pass_ok(&a, "id1", &f, 999), "{f}");
+        }
+        let d = share_download_pass(&a, "id1", "f", 1000);
+        for f in [
+            forge_last(&d),
+            d.get(..d.len() - 1).unwrap().to_owned(),
+            format!("{d}0"),
+        ] {
+            assert!(!share_download_ok(&a, "id1", "f", &f, 999), "{f}");
+        }
+    }
+
+    /// The value with its last hexadecimal character changed.
+    fn forge_last(v: &str) -> String {
+        let (head, last) = v.split_at(v.len() - 1);
+        format!("{head}{}", if last == "0" { "1" } else { "0" })
+    }
+
+    /// Constant-time equality: equal values only; a different byte anywhere, a prefix, a longer value: not equal.
+    #[test]
+    fn constant_time_eq_bounds() {
+        assert!(constant_time_eq(b"", b"") && constant_time_eq(b"abc", b"abc"));
+        for (x, y) in [
+            (&b"abc"[..], &b"xbc"[..]),
+            (b"abc", b"abx"),
+            (b"abc", b"ab"),
+            (b"ab", b"abc"),
+            (b"", b"a"),
+        ] {
+            assert!(!constant_time_eq(x, y), "{x:?} {y:?}");
+        }
+    }
+
+    proptest::proptest! {
+        /// Constant-time equality answers exactly as `==`.
+        #[test]
+        fn constant_time_eq_is_equality(a in proptest::collection::vec(0u8..4, 0..8), b in proptest::collection::vec(0u8..4, 0..8)) {
+            proptest::prop_assert_eq!(constant_time_eq(&a, &b), a == b);
+            proptest::prop_assert!(constant_time_eq(&a, &a));
+        }
     }
 
     /// Second-step limit per account: 4 failures pass, the 5th blocks, for 15 minutes, for this account only, all IPs

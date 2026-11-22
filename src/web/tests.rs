@@ -1038,6 +1038,24 @@ async fn hidden_files_toggle() {
     assert_eq!(status(app, "GET", "/web/tree/H/", &b).await, StatusCode::SEE_OTHER);
 }
 
+/// CSRF token: only the session's exact token passes; absent, empty, cut, longer or one character off is refused.
+#[test]
+fn csrf_ok_bounds() {
+    use super::csrf_ok;
+    let tok = "0123456789abcdef0123456789abcdef";
+    assert!(csrf_ok(Some(tok), tok));
+    for g in [
+        None,
+        Some(""),
+        Some("0123456789abcdef0123456789abcde"),
+        Some("0123456789abcdef0123456789abcdef0"),
+        Some("0123456789abcdef0123456789abcdee"),
+        Some("1123456789abcdef0123456789abcdef"),
+    ] {
+        assert!(!csrf_ok(g, tok), "{g:?}");
+    }
+}
+
 /// Hidden name: starts with `.`, nothing else.
 #[test]
 fn is_hidden_bounds() {

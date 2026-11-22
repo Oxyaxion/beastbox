@@ -249,7 +249,7 @@ pub fn read_flow(t: &TenantCtx, cookie: &str, now: i64) -> Option<Flow> {
         return None;
     }
     let (payload, mac) = cookie.rsplit_once('.')?;
-    if !constant_time_eq(keyed(t, "oidc-cookie", payload).as_bytes(), mac.as_bytes()) {
+    if !crate::auth::constant_time_eq(keyed(t, "oidc-cookie", payload).as_bytes(), mac.as_bytes()) {
         return None;
     }
     let (until, rest) = payload.split_once('.')?;
@@ -273,7 +273,7 @@ pub fn read_flow(t: &TenantCtx, cookie: &str, now: i64) -> Option<Flow> {
 
 /// Does the provider echo this flow's `state`? Constant time: a timing oracle on `state` would be a login CSRF oracle.
 pub fn state_ok(flow: &Flow, received: &str) -> bool {
-    constant_time_eq(flow.state.as_bytes(), received.as_bytes())
+    crate::auth::constant_time_eq(flow.state.as_bytes(), received.as_bytes())
 }
 
 /// Where a sign-in may send the browser: the file of a link (`/index.php/f/<digits>`), the account page, the Login
@@ -512,7 +512,7 @@ pub fn check_id_token(raw: &str, c: &OidcClient, f: &Flow, now: i64) -> Result<V
         }
     }
     match &claims.nonce {
-        Some(n) if constant_time_eq(n.as_bytes(), f.nonce.as_bytes()) => {}
+        Some(n) if crate::auth::constant_time_eq(n.as_bytes(), f.nonce.as_bytes()) => {}
         _ => return Err(Refusal::Nonce),
     }
     if !valid_subject(&claims.sub) {
@@ -544,11 +544,6 @@ pub fn valid_subject(s: &str) -> bool {
 /// `state`, `nonce` or verifier useless.
 fn keyed(t: &TenantCtx, name: &str, input: &str) -> String {
     crate::auth::hex(&t.mac(format!("{name}\0{input}").as_bytes()))
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    use subtle::ConstantTimeEq;
-    a.ct_eq(b).into()
 }
 
 fn is_hex(s: &str) -> bool {

@@ -472,9 +472,14 @@ async fn need_gate(app: &Arc<App>, t: &TenantCtx, h: &HeaderMap, g: &str) -> Res
 }
 
 /// Modifying form: session and CSRF token required (§8).
+/// The CSRF token received (form field or header) is the session's, compared in constant time.
+pub(crate) fn csrf_ok(given: Option<&str>, expected: &str) -> bool {
+    given.is_some_and(|g| auth::constant_time_eq(g.as_bytes(), expected.as_bytes()))
+}
+
 async fn need_form(app: &Arc<App>, t: &TenantCtx, h: &HeaderMap, body: &[u8]) -> Result<WebUser, Response> {
     let w = need(app, t, h).await?;
-    if form_field(body, "csrf").as_deref() != Some(w.csrf.as_str()) {
+    if !csrf_ok(form_field(body, "csrf").as_deref(), &w.csrf) {
         let lang = lang(app, h);
         return Err(message(
             lang,
@@ -694,7 +699,7 @@ async fn logout(
 ) -> Response {
     // Any session, including one that must still choose its password.
     let w = session_any(&app, &t, &h).await;
-    if let Some(w) = w.filter(|w| form_field(&body, "csrf").as_deref() == Some(w.csrf.as_str())) {
+    if let Some(w) = w.filter(|w| csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf)) {
         let (app2, t2) = (app.clone(), t.clone());
         let _ = blocking(move || auth::end_session(&app2.db, &t2, &w.secret)).await;
     }
@@ -2808,7 +2813,7 @@ async fn web_dav_at(
     let Some(w) = session(&app, &t, req.headers()).await else {
         return StatusCode::UNAUTHORIZED.into_response();
     };
-    if req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok()) != Some(w.csrf.as_str()) {
+    if !csrf_ok(req.headers().get("x-csrf-token").and_then(|v| v.to_str().ok()), &w.csrf) {
         return StatusCode::FORBIDDEN.into_response();
     }
     dav::web_dav(app, w.u, origin, &raw, req).await
@@ -4251,7 +4256,7 @@ async fn totp_setup_post(
     };
     let lang = lang(&app, &h);
     let mut v = totp_setup_view(&t, lang, &origin, &w);
-    if form_field(&body, "csrf").as_deref() != Some(w.csrf.as_str()) {
+    if !csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf) {
         v.msg = lang.t("Invalid form token: reload the page.");
         v.error = true;
         return totp_setup_page(lang, StatusCode::FORBIDDEN, v);
@@ -4321,7 +4326,7 @@ async fn login_code_post(
         };
         html(code, &p)
     };
-    if form_field(&body, "csrf").as_deref() != Some(w.csrf.as_str()) {
+    if !csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf) {
         return page(StatusCode::FORBIDDEN, lang.t("Invalid form token: reload the page."));
     }
     let Some(input) = form_field(&body, "code").or_else(|| form_field(&body, "recovery")) else {
@@ -4409,7 +4414,7 @@ async fn welcome_post(
         Ok(w) => w,
         Err(r) => return r,
     };
-    if form_field(&body, "csrf").as_deref() != Some(w.csrf.as_str()) {
+    if !csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf) {
         return welcome_page(
             &app,
             lang,
