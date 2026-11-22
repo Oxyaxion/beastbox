@@ -37,6 +37,22 @@ const dnd = (() => {
       return `csrf=${encodeURIComponent(csrf)}${f("dir", rel(parent(items[0].dav)))}&op=move${f("dest", rel(to))}` +
         items.map((x) => f("item", x.name)).join("");
     },
+    // Spring-loaded folders: a target held for `delay` ms runs `open` once; another target, leaving or the end of the drag
+    // cancels it. Timers injected (`setTimeout`, `clearTimeout` in the page).
+    spring: (delay, later, cancel) => {
+      let at = null, t = null;
+      const stop = () => { if (t !== null) cancel(t); at = null; t = null; };
+      return Object.freeze({
+        over: (target, open) => {
+          if (target === at) return;
+          stop();
+          at = target;
+          t = later(() => { at = null; t = null; open(); }, delay);
+        },
+        leave: (target) => { if (target === at) stop(); },
+        stop,
+      });
+    },
     // New address of the page at `path` once `x` moved into `to`; null if the page is not inside `x`.
     follow: (path, x, to) => {
       const page = path.match(/^(\/web\/(?:files|view)\/)(.*)$/);
@@ -646,13 +662,20 @@ const dnd = (() => {
     const a = treeLink(e), it = a && dnd.treeItem(a.getAttribute("href"));
     if (it) grab(e, [it]);
   });
-  document.addEventListener("dragend", (e) => { if (treeLink(e)) dragged = []; });
+  // A closed folder of the tree held under the dragged items opens (its subfolders load, `toggle` above).
+  const spring = dnd.spring(700, setTimeout, clearTimeout);
+  document.addEventListener("dragend", (e) => { spring.stop(); if (treeLink(e)) dragged = []; });
   document.addEventListener("dragover", (e) => {
     const a = treeLink(e);
-    if (a && dragged.length && !refused(folderOf(a))) { e.preventDefault(); a.classList.add("cible"); }
+    if (a && dragged.length && !refused(folderOf(a))) {
+      e.preventDefault(); a.classList.add("cible");
+      const d = a.closest("details");
+      if (d && !d.open) spring.over(a, () => { d.open = true; });
+    }
   });
-  document.addEventListener("dragleave", (e) => treeLink(e)?.classList.remove("cible"));
+  document.addEventListener("dragleave", (e) => { const a = treeLink(e); if (a) { a.classList.remove("cible"); spring.leave(a); } });
   document.addEventListener("drop", (e) => {
+    spring.stop();
     const a = treeLink(e);
     if (!a) return;
     a.classList.remove("cible");

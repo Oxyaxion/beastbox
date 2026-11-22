@@ -99,3 +99,38 @@ test("the move goes through the form of the Move dialog: paths decoded, every it
 test("a page inside a folder moved under a new name follows the new name", () => {
   assert.equal(dnd.follow("/web/files/A/x/", { dav: "/web/dav/A/", name: "A (2)" }, "/web/dav/C/"), "/web/files/C/A%20(2)/x/");
 });
+
+test("spring-loaded folder: opens once after the delay, cancelled by another target, leaving or the end", () => {
+  let now = 0, next = 1;
+  const timers = new Map();
+  const later = (f, ms) => { timers.set(next, { f, at: now + ms }); return next++; };
+  const cancel = (id) => timers.delete(id);
+  const run = (ms) => {
+    now += ms;
+    for (const [id, x] of [...timers]) if (x.at <= now) { timers.delete(id); x.f(); }
+  };
+  const s = dnd.spring(700, later, cancel);
+  const opened = [];
+  const A = {}, B = {};
+  // Held: opens at the delay, not before, once (dragover repeats every few ms).
+  s.over(A, () => opened.push("A"));
+  run(699); assert.deepEqual(opened, []);
+  s.over(A, () => opened.push("A"));
+  run(1); assert.deepEqual(opened, ["A"]);
+  run(5000); assert.deepEqual(opened, ["A"]);
+  // Another target before the delay: only the last one opens.
+  s.over(A, () => opened.push("A2"));
+  run(400);
+  s.over(B, () => opened.push("B"));
+  run(400); assert.deepEqual(opened, ["A"]);
+  run(300); assert.deepEqual(opened, ["A", "B"]);
+  // Leaving the target, or the drag ending: nothing opens.
+  s.over(A, () => opened.push("A3"));
+  s.leave(B); // not the one held: no effect
+  s.leave(A);
+  s.over(B, () => opened.push("B2"));
+  s.stop();
+  run(5000);
+  assert.deepEqual(opened, ["A", "B"]);
+  assert.equal(timers.size, 0);
+});
