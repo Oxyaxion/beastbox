@@ -81,3 +81,21 @@ test("a page inside a moved folder follows it", () => {
   assert.equal(dnd.follow("/web/files/", A, "/web/dav/C/"), null);
   assert.equal(dnd.follow("/web/shares", A, "/web/dav/C/"), null);
 });
+
+test("the move goes through the form of the Move dialog: paths decoded, every item, the token", () => {
+  const f = { dav: "/web/dav/Mes%20docs/caf%C3%A9.txt", name: "café.txt" };
+  const g = { dav: "/web/dav/Mes%20docs/a&b=c", name: "a&b=c" };
+  assert.equal(
+    dnd.bulkMove([f, g], "/web/dav/Dest/B%20B/", "t+k/="),
+    "csrf=t%2Bk%2F%3D&dir=Mes%20docs&op=move&dest=Dest%2FB%20B&item=caf%C3%A9.txt&item=a%26b%3Dc",
+  );
+  // From the root, to the root; a tree folder (URL ending with "/").
+  assert.equal(dnd.bulkMove([{ dav: "/web/dav/x.txt", name: "x.txt" }], "/web/dav/", "t"), "csrf=t&dir=&op=move&dest=&item=x.txt");
+  assert.equal(dnd.bulkMove([{ dav: "/web/dav/A/B/", name: "B" }], "/web/dav/C/", "t"), "csrf=t&dir=A&op=move&dest=C&item=B");
+  assert.equal(dnd.rel("/web/dav/A/b%20c/"), "A/b c");
+  assert.equal(dnd.rel("/web/dav/"), "");
+});
+
+test("a page inside a folder moved under a new name follows the new name", () => {
+  assert.equal(dnd.follow("/web/files/A/x/", { dav: "/web/dav/A/", name: "A (2)" }, "/web/dav/C/"), "/web/files/C/A%20(2)/x/");
+});

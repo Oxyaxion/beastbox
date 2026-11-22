@@ -4534,6 +4534,49 @@ proptest::proptest! {
     }
 }
 
+/// Drag and drop posts the "Move" form as `dnd.bulkMove` writes it (tests/js/dnd.test.mjs): every name encoded,
+/// slashes of the paths as `%2F`; a taken name gives the next free one, and the answer says where it went.
+#[tokio::test]
+async fn drag_and_drop_form_moves_to_a_free_name() {
+    let e = env();
+    let app = &e.app;
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let d = disk(&e);
+    std::fs::create_dir_all(d.join("Mes docs")).unwrap();
+    std::fs::create_dir_all(d.join("Dest/B B/a&b=c")).unwrap();
+    std::fs::write(d.join("Mes docs/a&b=c"), b"moi").unwrap();
+    std::fs::write(d.join("Mes docs/café.txt"), b"cafe").unwrap();
+    let tok: String = csrf.bytes().map(|b| format!("%{b:02X}")).collect();
+    let body = format!("csrf={tok}&dir=Mes%20docs&op=move&dest=Dest%2FB%20B&item=caf%C3%A9.txt&item=a%26b%3Dc");
+    let (s, h, _) = call(app, "POST", "/web/bulk", &c, &body).await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+    assert_eq!(
+        h["location"].to_str().unwrap(),
+        "/web/files/Mes%20docs/?op=move&ok=2&ko=0&to=Dest%2FB%20B"
+    );
+    assert_eq!(std::fs::read(d.join("Dest/B B/café.txt")).unwrap(), b"cafe");
+    assert_eq!(std::fs::read(d.join("Dest/B B/a&b=c (2)")).unwrap(), b"moi");
+    assert!(d.join("Dest/B B/a&b=c").is_dir());
+    // A tree folder dropped on another, from the root to the root's child; without the token: refused.
+    std::fs::create_dir_all(d.join("T")).unwrap();
+    let (_, h, _) = call(
+        app,
+        "POST",
+        "/web/bulk",
+        &c,
+        &format!("csrf={tok}&dir=&op=move&dest=Dest&item=T"),
+    )
+    .await;
+    assert_eq!(
+        h["location"].to_str().unwrap(),
+        "/web/files/?op=move&ok=1&ko=0&to=Dest&name=T"
+    );
+    let (s, _, _) = call(app, "POST", "/web/bulk", &c, "csrf=&dir=Dest&op=move&dest=&item=T").await;
+    assert_eq!(s, StatusCode::FORBIDDEN);
+    assert!(d.join("Dest/T").is_dir());
+}
+
 /// Names a copy tries: the name first, then numbered up to 99; a file keeps a real extension last, a folder or a name
 /// with no real extension keeps its whole name before the number.
 #[test]

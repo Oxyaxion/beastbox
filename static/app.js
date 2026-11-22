@@ -12,8 +12,10 @@ const dnd = (() => {
   const DAV = "/web/dav/";
   const slash = (u) => u.replace(/\/?$/, "/");
   const parent = (url) => url.replace(/\/[^/]+\/?$/, "/");
+  // A WebDAV URL as the path the forms take ("" = root): "/web/dav/A/b%20c/" → "A/b c".
+  const rel = (url) => decodeURIComponent(url.slice(DAV.length).replace(/\/$/, ""));
   return Object.freeze({
-    DAV, slash, parent,
+    DAV, slash, parent, rel,
     // Count shown beside the first name while dragging: "" alone, "+9" for ten items.
     more: (items) => (items.length > 1 ? `+${items.length - 1}` : ""),
     // What a row carries: the whole selection if the row is part of it, otherwise the row alone.
@@ -28,6 +30,13 @@ const dnd = (() => {
     refused: (items, to) => items.some((x) => to.startsWith(slash(x.dav))),
     // The items that actually move: those already in `to` stay.
     moving: (items, to) => items.filter((x) => slash(parent(x.dav)) !== to),
+    // Form of the move (POST /web/bulk, the rule of the "Move" dialog: a taken name gives the next free one). The items
+    // share a folder: a selection of the listing, or one tree link.
+    bulkMove: (items, to, csrf) => {
+      const f = (k, v) => `&${k}=${encodeURIComponent(v)}`;
+      return `csrf=${encodeURIComponent(csrf)}${f("dir", rel(parent(items[0].dav)))}&op=move${f("dest", rel(to))}` +
+        items.map((x) => f("item", x.name)).join("");
+    },
     // New address of the page at `path` once `x` moved into `to`; null if the page is not inside `x`.
     follow: (path, x, to) => {
       const page = path.match(/^(\/web\/(?:files|view)\/)(.*)$/);
@@ -567,20 +576,31 @@ const dnd = (() => {
   // Rules in `dnd` (top of this file); here only the page: what is dragged, the targets, the refresh.
   let dragged = [];
   const refused = (to) => dnd.refused(dragged, to);
+  // The server moves (same rule and message as the "Move" dialog), then the page shows its message: the address it
+  // answers carries what happened (`?op=move&ok=…&to=…&name=…`).
   async function moveTo(to) {
     const items = dnd.moving(dragged, to);
     dragged = [];
     if (!items.length) return;
-    const done = await Promise.allSettled(items.map((x) =>
-      send("MOVE", x.dav, { Destination: to + encodeURIComponent(x.name), Overwrite: "F" })));
-    const bad = done.find((r) => r.status === "rejected");
-    if (bad) fail(bad.reason);
-    // The page shows a moved folder or something inside it: follow it to its new place.
-    for (const [k, x] of items.entries()) {
-      const next = done[k].status === "fulfilled" && dnd.follow(location.pathname, x, to);
+    let r;
+    try {
+      r = await fetch("/web/bulk", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: dnd.bulkMove(items, to, csrf),
+      });
+    } catch (e) { fail(e); return; }
+    if (!r.ok) { fail(new Error(tr("error ", "erreur ") + r.status)); return; }
+    const done = new URL(r.url, location.href).searchParams;
+    // The page shows a moved folder or something inside it: follow it to its new place (and its new name).
+    if (done.get("ok") === "1") {
+      const x = { ...items[0], name: done.get("name") || items[0].name };
+      const next = items.length === 1 && dnd.follow(location.pathname, x, to);
       if (next) { location.assign(next); return; }
     }
-    refresh().catch(() => location.reload()); // the listing and the tree
+    // A folder's page: its message (with the links); elsewhere, the tree is enough.
+    if ($("[data-contenu]")) location.assign(location.pathname + "?" + done.toString());
+    else location.reload();
   }
   // Drag image: a small label beside the pointer instead of the row (which hid the target); several items: a stack.
   const grab = (e, items) => {
