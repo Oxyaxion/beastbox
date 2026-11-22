@@ -46,6 +46,28 @@ pub fn kind(name: &str) -> Kind {
     }
 }
 
+/// A name with no extension to judge it by: no dot, only a leading one (`.bashrc`), or a trailing one (`a.`).
+pub fn no_extension(name: &str) -> bool {
+    name.rsplit_once('.')
+        .is_none_or(|(stem, ext)| stem.is_empty() || ext.is_empty())
+}
+
+/// Content that is plain text (for a file with no extension): UTF-8, no NUL nor control character other than tab,
+/// line feed, carriage return and form feed. A multi-byte character cut by the end of `b` (a bounded read) is accepted.
+pub fn looks_text(b: &[u8]) -> bool {
+    let valid = match std::str::from_utf8(b) {
+        Ok(s) => s,
+        Err(e) if e.error_len().is_none() => b
+            .get(..e.valid_up_to())
+            .and_then(|v| std::str::from_utf8(v).ok())
+            .unwrap_or(""),
+        Err(_) => return false,
+    };
+    !valid
+        .chars()
+        .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\x0c'))
+}
+
 /// MIME type from the extension (clients' WebDAV search: thumbnails, Photos tab, opening with the right app).
 pub fn mime(name: &str) -> &'static str {
     match kind(name) {

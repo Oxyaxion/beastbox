@@ -2059,11 +2059,15 @@ struct ViewPage {
 }
 
 /// A text file the web interface can edit: text or Markdown, ≤ `PREVIEW_MAX`, valid UTF-8.
+/// Editable here: a text file by its extension, or a file with no extension whose content is plain text (`README`,
+/// `hosts`); at most `PREVIEW_MAX`, in UTF-8. Checked again on save: a binary file is never replaced by text.
 fn editable(name: &str, m: &Meta, content: &[u8]) -> bool {
-    m.is_file
-        && matches!(render::kind(name), render::Kind::Text | render::Kind::Markdown)
-        && m.size <= render::PREVIEW_MAX as u64
-        && std::str::from_utf8(content).is_ok()
+    let text = match render::kind(name) {
+        render::Kind::Text | render::Kind::Markdown => true,
+        render::Kind::None => render::no_extension(name) && render::looks_text(content),
+        _ => false,
+    };
+    m.is_file && text && m.size <= render::PREVIEW_MAX as u64 && std::str::from_utf8(content).is_ok()
 }
 
 #[derive(Template)]
@@ -2547,6 +2551,7 @@ async fn view_at(
         .map_or(lang.t("Files").to_owned(), |p| p.split_parent().1.to_owned());
     let kind = render::kind(&name);
     let (u, p, show) = (w.u.clone(), path.clone(), w.show_hidden);
+    let maybe = render::no_extension(&name) && kind == render::Kind::None;
     type Read = (
         Meta,
         Vec<String>,
@@ -2564,12 +2569,20 @@ async fn view_at(
         };
         let (tags, fav) = root.labels(p.as_ref())?;
         let (mut text, mut edit) = (None, false);
-        if let (true, Some(p), render::Kind::Text | render::Kind::Markdown) = (m.is_file, &p, kind) {
+        // Text by its extension, or a file with no extension whose content turns out to be text.
+        if let (true, Some(p), render::Kind::Text | render::Kind::Markdown | render::Kind::None) = (m.is_file, &p, kind)
+            && (kind != render::Kind::None || maybe)
+        {
             let (f, _) = root.open_file(p)?;
             let mut buf = Vec::new();
             f.take(render::PREVIEW_MAX as u64).read_to_end(&mut buf)?;
-            edit = editable(p.split_parent().1, &m, &buf);
-            text = Some(String::from_utf8_lossy(&buf).into_owned());
+            // Read whole: it must be valid UTF-8 to the end (a cut character is only allowed when the read stopped).
+            let whole = m.size <= render::PREVIEW_MAX as u64;
+            if kind != render::Kind::None || (render::looks_text(&buf) && (!whole || std::str::from_utf8(&buf).is_ok()))
+            {
+                edit = editable(p.split_parent().1, &m, &buf);
+                text = Some(String::from_utf8_lossy(&buf).into_owned());
+            }
         }
         // Sidebar opened on the folder being viewed, or on the one holding the file.
         let here = match &p {
@@ -2617,7 +2630,11 @@ async fn view_at(
         } else {
             None
         },
-        text: if kind == render::Kind::Text { text } else { None },
+        text: if matches!(kind, render::Kind::Text | render::Kind::None) {
+            text
+        } else {
+            None
+        },
         image: media(matches!(kind, render::Kind::Image(_))),
         pdf: media(kind == render::Kind::Pdf),
         audio: media(matches!(kind, render::Kind::Audio(_))),

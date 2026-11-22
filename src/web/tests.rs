@@ -1504,6 +1504,160 @@ async fn search_scope_and_filters() {
     assert!(!page.contains("<script>") && page.contains("&#60;script&#62;"));
 }
 
+/// A file with no extension (`README`, `.bashrc`, `a.`) is shown and edited when its content is plain text; a binary
+/// one (NUL, control character, invalid UTF-8) is neither shown as text nor editable, and a save never replaces it;
+/// a file with an unknown extension stays as before; the other tenant's session edits nothing.
+#[tokio::test]
+async fn edit_a_text_file_without_extension() {
+    use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
+    let e = env();
+    let app = &e.app;
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let d = disk(&e).join("N");
+    std::fs::create_dir_all(&d).unwrap();
+    let files: [(&str, &[u8]); 8] = [
+        ("README", b"Bonjour \xc3\xa9t\xc3\xa9\n\tind\xc3\xa9nt\r\n"),
+        (".bashrc", b"alias ll='ls -l'\n"),
+        ("a.", b"x\n"),
+        ("vide", b""),
+        ("binaire", b"MZ\x00\x01\x02"),
+        ("controle", b"texte\x1b[31m rouge"),
+        ("latin1", b"caf\xe9"),
+        ("notes.xyz", b"du texte\n"),
+    ];
+    for (n, b) in files {
+        std::fs::write(d.join(n), b).unwrap();
+    }
+    for (n, text) in [
+        ("README", true),
+        (".bashrc", true),
+        ("a.", true),
+        ("vide", true),
+        ("binaire", false),
+        ("controle", false),
+        ("latin1", false),
+        ("notes.xyz", false),
+    ] {
+        let (_, _, v) = call(
+            app,
+            "GET",
+            &format!("/web/view/N/{}", utf8_percent_encode(n, NON_ALPHANUMERIC)),
+            &c,
+            "",
+        )
+        .await;
+        let edit = format!("href=\"/web/edit/N/{}\"", crate::dav::href("", Some(n), false));
+        assert_eq!(v.contains(&edit), text, "{n}: edit button");
+        let (s, _, _) = call(
+            app,
+            "GET",
+            &format!("/web/edit/N/{}", utf8_percent_encode(n, NON_ALPHANUMERIC)),
+            &c,
+            "",
+        )
+        .await;
+        assert_eq!(s == StatusCode::OK, text, "{n}: edit page");
+    }
+    let (_, _, v) = call(app, "GET", "/web/view/N/README", &c, "").await;
+    assert!(v.contains("Bonjour été"), "the text shown");
+    // Latin-1 ending with a cut-looking byte: read whole, so not text (the copy button marks a text shown in full).
+    let (_, _, v) = call(app, "GET", "/web/view/N/latin1", &c, "").await;
+    assert!(!v.contains("data-copier") && !v.contains(">caf"));
+    let (_, _, v) = call(app, "GET", "/web/view/N/vide", &c, "").await;
+    assert!(v.contains("data-copier=\"/web/raw/N/vide\""));
+    // Save: written, line ends kept.
+    let (_, _, page) = call(app, "GET", "/web/edit/N/README", &c, "").await;
+    let etag = page
+        .split("name=\"etag\" value=\"")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap()
+        .to_owned();
+    let body = format!(
+        "csrf={csrf}&etag={etag}&text={}",
+        utf8_percent_encode("Salut\r\n", NON_ALPHANUMERIC)
+    );
+    let (s, h, _) = call(app, "POST", "/web/edit/N/README", &c, &body).await;
+    assert_eq!(
+        (s, h["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/web/view/N/README")
+    );
+    assert_eq!(std::fs::read(d.join("README")).unwrap(), b"Salut\r\n");
+    // A binary file is never replaced by text, whatever is posted.
+    let (s, _, _) = call(
+        app,
+        "POST",
+        "/web/edit/N/binaire",
+        &c,
+        &format!("csrf={csrf}&etag=x&text=oops"),
+    )
+    .await;
+    assert_ne!(s, StatusCode::SEE_OTHER);
+    assert_eq!(std::fs::read(d.join("binaire")).unwrap(), b"MZ\x00\x01\x02");
+    // Other tenant: alpha's session edits nothing there.
+    let (_, h, _) = call(
+        app,
+        "POST",
+        "/web/edit/N/README",
+        &[B, ("cookie", cookie.as_str())],
+        &body,
+    )
+    .await;
+    assert_eq!(h["location"].to_str().unwrap(), "/login");
+    assert_eq!(std::fs::read(d.join("README")).unwrap(), b"Salut\r\n");
+}
+
+/// No extension: no dot, a leading one only, a trailing one; anything else has one.
+#[test]
+fn no_extension_bounds() {
+    use super::render::no_extension;
+    for n in ["README", ".bashrc", "a.", ".", ""] {
+        assert!(no_extension(n), "{n}");
+    }
+    for n in ["a.txt", ".env.local", "archive.tar.gz", "a.b"] {
+        assert!(!no_extension(n), "{n}");
+    }
+}
+
+/// Plain text: tab, LF, CR, FF accepted, any other control character or NUL refused, invalid UTF-8 refused, a
+/// character cut at the end of a bounded read accepted.
+#[test]
+fn looks_text_bounds() {
+    use super::render::looks_text;
+    for b in [&b""[..], b"a\tb\nc\r\n\x0c", "été".as_bytes(), b"caf\xc3"] {
+        assert!(looks_text(b), "{b:?}");
+    }
+    for b in [
+        &b"\x00"[..],
+        b"a\x1bb",
+        b"\x7f",
+        b"\x08",
+        b"caf\xe9 x",
+        b"\xc3\x28",
+        "a\u{85}b".as_bytes(),
+    ] {
+        assert!(!looks_text(b), "{b:?}");
+    }
+}
+
+proptest::proptest! {
+    /// Any text without control characters is text; adding a NUL anywhere makes it not; cutting it anywhere keeps it.
+    #[test]
+    fn looks_text_holds(t in "[^\\p{Cc}]{0,40}", at in 0usize..41) {
+        use super::render::looks_text;
+        let b = t.as_bytes();
+        proptest::prop_assert!(looks_text(b));
+        let i = at.min(b.len());
+        proptest::prop_assert!(looks_text(b.get(..i).unwrap()));
+        let mut z = b.to_vec();
+        z.insert(i, 0);
+        proptest::prop_assert!(!looks_text(&z));
+    }
+}
+
 /// Editing a text file from the web: through the WebDAV PUT (identity kept, ETag renewed), line ends kept, conflict
 /// with a change made elsewhere (text typed kept, replace on request), Markdown preview without saving, refusals.
 #[tokio::test]
