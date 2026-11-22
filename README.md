@@ -14,14 +14,7 @@ rules.
 **[Releases](https://codeberg.org/Modulus/beastbox/releases)**: FreeBSD 15 amd64 builds with their SHA-256, and the
 release notes.
 
-## Why
-I wanted my family's files at home, on the FreeBSD server and ZFS pool I already run, without maintaining a full
-Nextcloud (PHP, a database, a long tail of apps). Beastbox keeps files safe and reachable from the Nextcloud apps people
-already have on their phones and computers, and not much more.
-
-When goals pull in different directions, not losing a file comes first, then security, then speed and memory use;
-new features come last, and many are left out on purpose. The reasoning behind each choice is in the
-[specification](docs/dev/beastbox-plan.md).
+Developed with security and testing in mind.
 
 ## What it does
 - **Sync with the official clients** — tested for real: desktop client on **Linux** and **Windows**, **Android** app,
@@ -37,6 +30,9 @@ new features come last, and many are left out on purpose. The reasoning behind e
   write is refused rather than overwritten; backup and total loss tested for real.
 - **Security** — tenants isolated on every SQL query and every route, no access outside the dataset (the kernel refuses `..`
   and links), strict CSP, CSRF, argon2id, per-device app passwords, rate limiting, fuzzed parsers, never root.
+- **Several isolated tenants** — one server hosts several domains (a family or an association each), each with its own
+  users, data and settings, kept apart by design and by automated tests. **Caution: not yet validated by hands-on human
+  testing.**
 - **Sandboxed by Capsicum** — once its folders, database and socket are open, the server enters FreeBSD's capability mode:
   the kernel then refuses it any new path, outgoing connection or process. A flaw in the code stays inside what was
   already open: no other file of the machine, no shell; the identity provider is reached only through a Casper channel
