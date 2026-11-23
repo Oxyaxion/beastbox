@@ -4,7 +4,7 @@
 #                                        with the CHANGELOG.md entry "## X.Y.Z — date" written at the top
 #   scripts/release.sh X.Y.Z --publish   the same, then git push, the test report on GitHub Pages
 #                                        (scripts/report-pages.sh) and the release with the FreeBSD archive
-#                                        (scripts/gitea-release.sh)
+#                                        (scripts/github-release.sh)
 #   scripts/release.sh X.Y.Z --reuse     skip the campaign, reuse the last green one (target/ci, docs/dev/bench-runs.json)
 # Steps: version in Cargo.toml and both Cargo.lock; scripts/vm.sh ci --long in a throwaway FreeBSD VM (tests, coverage
 # floors, long property runs, fuzz, litmus, mutants) which also records the runs and builds the release binary;
@@ -95,7 +95,7 @@ if [ "$publish" = "--publish" ]; then
     step "publish"
     git push origin main "v$v"
     scripts/report-pages.sh
-    scripts/gitea-release.sh "$v"
+    scripts/github-release.sh "$v"
 else
-    printf '\nNot published. When ready:\n  git push origin main v%s\n  scripts/report-pages.sh\n  scripts/gitea-release.sh %s\n' "$v" "$v"
+    printf '\nNot published. When ready:\n  git push origin main v%s\n  scripts/report-pages.sh\n  scripts/github-release.sh %s\n' "$v" "$v"
 fi
