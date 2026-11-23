@@ -644,6 +644,18 @@ mod tests {
         assert_eq!(db.user_password_hash(&a, "alice").unwrap(), None);
         assert!(db.session_user(&a, &[1; 32]).unwrap().is_none());
         assert_eq!(db.user_password_hash(&b, "alice").unwrap().as_deref(), Some("h"));
+        // The unlinking is audited only for an account bound to a provider.
+        let unlinks = |t| {
+            db.audit_list(t)
+                .unwrap()
+                .iter()
+                .filter(|r| r.action == "oidc-unlink")
+                .count()
+        };
+        assert_eq!(unlinks(&a), 0);
+        db.user_oidc_link(&b, "alice", "https://idp.example", "sub-1").unwrap();
+        user_reset(&db, &b, "alice").unwrap();
+        assert_eq!(unlinks(&b), 1);
     }
 
     #[test]

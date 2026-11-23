@@ -1142,6 +1142,50 @@ pub(crate) mod tests {
         );
     }
 
+    /// A flow being confirmed (claimed, its app password not made yet): a second confirmation finds it taken and makes
+    /// nothing; a full table never drops it to make room; a flow lives 20 minutes.
+    #[tokio::test]
+    async fn login_flow_being_confirmed_is_neither_confirmed_again_nor_dropped() {
+        let e = env();
+        let app = &e.app;
+        let proto = ("x-forwarded-proto", "http");
+        let alpha = e.state.registry.by_name("alpha").unwrap();
+        let (_, _, body) = call(app, "POST", "/index.php/login/v2", &[A, proto], "").await;
+        let path = grab(&body, "login")
+            .strip_prefix("http://files.alpha.example")
+            .unwrap()
+            .to_owned();
+        let (n, life) = alpha.flows().claimed_and_shortest_life();
+        let life = life.unwrap();
+        assert!(
+            n == 0
+                && life > std::time::Duration::from_secs(20 * 60 - 5)
+                && life <= std::time::Duration::from_secs(20 * 60),
+            "{life:?}"
+        );
+        assert_eq!(alpha.flows().claim_pending(), 1);
+        let session = alice_session(app).await;
+        let c = [A, ("cookie", session.as_str())];
+        assert_eq!(
+            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            StatusCode::NOT_FOUND
+        );
+        assert!(e.state.db.token_list(&alpha, "alice").unwrap().is_empty());
+        for i in 0..crate::nc::MAX_FLOWS as u32 {
+            let ip = format!("2001:db8:{i:x}::1");
+            let (s, _, _) = call(
+                app,
+                "POST",
+                "/index.php/login/v2",
+                &[A, proto, ("x-real-ip", ip.as_str())],
+                "",
+            )
+            .await;
+            assert_eq!(s, StatusCode::OK, "flow {i}");
+        }
+        assert_eq!(alpha.flows().claimed_and_shortest_life().0, 1, "the claimed flow kept");
+    }
+
     #[tokio::test]
     async fn login_flow_v2() {
         let e = env();

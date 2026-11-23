@@ -835,7 +835,14 @@ mod tests {
             assert!(full.first_use(&f(&i.to_string(), 100), 10));
         }
         assert!(!full.first_use(&f("new", 100), 50), "full of live flows");
-        assert!(full.first_use(&f("new", 300), 200), "the expired ones were dropped");
+        assert!(
+            !full.first_use(&f("new", 300), 99),
+            "one second before their end, still live"
+        );
+        assert!(
+            full.first_use(&f("new", 300), 100),
+            "dead at `until` (as read_flow): dropped"
+        );
     }
 
     /// `header.payload.signature`, the payload being the JSON claims given.

@@ -227,6 +227,33 @@ impl Flows {
     }
 }
 
+#[cfg(test)]
+impl Flows {
+    /// Tests: marks every pending flow as being confirmed (the moment between the claim and the app password);
+    /// returns how many.
+    pub(crate) fn claim_pending(&self) -> usize {
+        self.with(|v| {
+            v.iter_mut()
+                .filter(|f| f.done.is_none())
+                .map(|f| f.claimed = true)
+                .count()
+        })
+        .unwrap_or(0)
+    }
+
+    /// Tests: how many flows are being confirmed, and the shortest life left.
+    pub(crate) fn claimed_and_shortest_life(&self) -> (usize, Option<Duration>) {
+        self.with(|v| {
+            let now = Instant::now();
+            (
+                v.iter().filter(|f| f.claimed && f.done.is_none()).count(),
+                v.iter().map(|f| f.expires - now).min(),
+            )
+        })
+        .unwrap_or((0, None))
+    }
+}
+
 /// `POST /index.php/login/v2` (anonymous).
 pub async fn flow_start(
     Extension(t): Extension<TenantCtx>,

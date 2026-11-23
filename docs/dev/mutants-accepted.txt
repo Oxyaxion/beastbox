@@ -25,3 +25,4 @@ src/fs/casper.rs: replace < with <= in CasperNet::connect  # same: fd 0 is not r
 src/fs/casper.rs: replace <impl Drop for CasperNet>::drop with ()  # the channels would leak until the process exits; nothing observable within a test
 src/fs/casper.rs: replace | with ^ in CasperNet::connect  # SOCK_STREAM and SOCK_CLOEXEC are distinct bits: or and xor give the same value
 src/web/oidc.rs: replace < with <= in discovery  # elapsed is an Instant in nanoseconds: < and <= differ only at exactly 30 s, which no test can hit without a clock
+src/web/activate.rs: replace || with && in find  # the shape check only spares a lookup: a malformed token's MAC matches no stored one (they are MACs of 64 lowercase hex digits), so the link is dead either way
