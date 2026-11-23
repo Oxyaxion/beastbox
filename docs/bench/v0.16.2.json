@@ -1,0 +1,1165 @@
+{
+ "version": "0.16.2",
+ "commit": "4acb34a4",
+ "date": "2026-11-23T10:01:07+00:00",
+ "summary": [
+  {
+   "tests": 401,
+   "passed": 401,
+   "failed": 0,
+   "failing": "",
+   "commit": "4acb34a4",
+   "date": "2026-11-23T09:59:01+00:00"
+  }
+ ],
+ "tests": [
+  {
+   "kind": "Unit",
+   "tests": 241
+  },
+  {
+   "kind": "End-to-end",
+   "tests": 121
+  },
+  {
+   "kind": "Property-based (proptest)",
+   "tests": 16
+  },
+  {
+   "kind": "Administration CLI (real binary)",
+   "tests": 13
+  },
+  {
+   "kind": "Audit",
+   "tests": 5
+  }
+ ],
+ "coverage_total": [
+  {
+   "regions": 95.4,
+   "lines": 97.2,
+   "functions": 96.2
+  }
+ ],
+ "coverage": [
+  {
+   "module": "fs/casper.rs",
+   "name": "fs/casper.rs",
+   "regions": 88.3,
+   "lines": 87.0,
+   "functions": 82.4,
+   "security": false
+  },
+  {
+   "module": "dav/upload.rs",
+   "name": "Chunked uploads",
+   "regions": 89.9,
+   "lines": 92.5,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "auth/oidc_net.rs",
+   "name": "auth/oidc_net.rs",
+   "regions": 91.0,
+   "lines": 91.9,
+   "functions": 83.3,
+   "security": false
+  },
+  {
+   "module": "fs/dir.rs",
+   "name": "Disk: folders and metadata",
+   "regions": 92.2,
+   "lines": 95.5,
+   "functions": 94.1,
+   "security": false
+  },
+  {
+   "module": "fs/mod.rs",
+   "name": "Disk: confined access",
+   "regions": 92.2,
+   "lines": 91.4,
+   "functions": 84.6,
+   "security": true
+  },
+  {
+   "module": "web/zip.rs",
+   "name": "ZIP downloads",
+   "regions": 93.1,
+   "lines": 95.8,
+   "functions": 71.4,
+   "security": false
+  },
+  {
+   "module": "fs/trash.rs",
+   "name": "Disk: trash",
+   "regions": 93.2,
+   "lines": 96.0,
+   "functions": 88.9,
+   "security": true
+  },
+  {
+   "module": "db/mod.rs",
+   "name": "Database",
+   "regions": 93.3,
+   "lines": 98.5,
+   "functions": 97.1,
+   "security": true
+  },
+  {
+   "module": "admin/mod.rs",
+   "name": "Administration (CLI)",
+   "regions": 94.1,
+   "lines": 96.8,
+   "functions": 91.1,
+   "security": false
+  },
+  {
+   "module": "i18n.rs",
+   "name": "Translations",
+   "regions": 94.1,
+   "lines": 92.4,
+   "functions": 94.7,
+   "security": false
+  },
+  {
+   "module": "web/share.rs",
+   "name": "Public links and drops",
+   "regions": 94.1,
+   "lines": 96.3,
+   "functions": 95.4,
+   "security": true
+  },
+  {
+   "module": "fs/write.rs",
+   "name": "Disk: atomic writes",
+   "regions": 94.4,
+   "lines": 96.0,
+   "functions": 90.3,
+   "security": true
+  },
+  {
+   "module": "dav/trashbin.rs",
+   "name": "Trash, as clients see it",
+   "regions": 94.7,
+   "lines": 96.5,
+   "functions": 96.8,
+   "security": false
+  },
+  {
+   "module": "nc/share.rs",
+   "name": "Sharing from the clients",
+   "regions": 94.8,
+   "lines": 97.7,
+   "functions": 100.0,
+   "security": true
+  },
+  {
+   "module": "dav/write.rs",
+   "name": "WebDAV: writes",
+   "regions": 95.0,
+   "lines": 97.4,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "nc/mod.rs",
+   "name": "Nextcloud protocol (login, thumbnails)",
+   "regions": 95.1,
+   "lines": 96.8,
+   "functions": 98.8,
+   "security": false
+  },
+  {
+   "module": "dav/search.rs",
+   "name": "WebDAV: client search",
+   "regions": 95.3,
+   "lines": 98.8,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "dav/mod.rs",
+   "name": "WebDAV: reads and listings",
+   "regions": 95.5,
+   "lines": 97.3,
+   "functions": 97.2,
+   "security": false
+  },
+  {
+   "module": "http.rs",
+   "name": "HTTP server and routes",
+   "regions": 95.7,
+   "lines": 96.6,
+   "functions": 97.3,
+   "security": false
+  },
+  {
+   "module": "web/mod.rs",
+   "name": "Web interface",
+   "regions": 95.7,
+   "lines": 97.5,
+   "functions": 99.5,
+   "security": false
+  },
+  {
+   "module": "web/activate.rs",
+   "name": "web/activate.rs",
+   "regions": 95.8,
+   "lines": 98.8,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "lib.rs",
+   "name": "Core",
+   "regions": 96.2,
+   "lines": 91.3,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "tenant/mod.rs",
+   "name": "Tenant separation",
+   "regions": 96.2,
+   "lines": 97.2,
+   "functions": 90.2,
+   "security": true
+  },
+  {
+   "module": "nc/thumb.rs",
+   "name": "Thumbnails",
+   "regions": 96.5,
+   "lines": 97.4,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "web/oidc.rs",
+   "name": "web/oidc.rs",
+   "regions": 96.7,
+   "lines": 96.5,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "fs/manifest.rs",
+   "name": "Disk: backup manifest",
+   "regions": 96.8,
+   "lines": 97.9,
+   "functions": 96.3,
+   "security": false
+  },
+  {
+   "module": "index/mod.rs",
+   "name": "Search index",
+   "regions": 98.0,
+   "lines": 98.6,
+   "functions": 98.5,
+   "security": false
+  },
+  {
+   "module": "auth/mod.rs",
+   "name": "Authentication",
+   "regions": 98.1,
+   "lines": 99.0,
+   "functions": 96.6,
+   "security": true
+  },
+  {
+   "module": "auth/totp.rs",
+   "name": "Two-step verification (TOTP)",
+   "regions": 98.2,
+   "lines": 98.2,
+   "functions": 91.4,
+   "security": true
+  },
+  {
+   "module": "auth/oidc.rs",
+   "name": "auth/oidc.rs",
+   "regions": 98.6,
+   "lines": 99.4,
+   "functions": 96.0,
+   "security": false
+  },
+  {
+   "module": "web/render.rs",
+   "name": "Web interface: rendering",
+   "regions": 98.6,
+   "lines": 99.8,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "nc/share_model.rs",
+   "name": "nc/share_model.rs",
+   "regions": 98.9,
+   "lines": 99.1,
+   "functions": 95.2,
+   "security": false
+  },
+  {
+   "module": "config.rs",
+   "name": "Configuration",
+   "regions": 99.2,
+   "lines": 99.2,
+   "functions": 96.5,
+   "security": false
+  },
+  {
+   "module": "etag/mod.rs",
+   "name": "Change detection (ETags)",
+   "regions": 100.0,
+   "lines": 100.0,
+   "functions": 100.0,
+   "security": false
+  },
+  {
+   "module": "fs/safepath.rs",
+   "name": "Disk: safe paths",
+   "regions": 100.0,
+   "lines": 100.0,
+   "functions": 100.0,
+   "security": true
+  }
+ ],
+ "fuzz": [
+  {
+   "target": "http",
+   "name": "Full HTTP surface",
+   "checks": "Arbitrary requests on the full router; oracles: no panic, no 500, no write outside the data roots, never a success without valid credentials",
+   "corpus": 9759,
+   "requests": 479750,
+   "seconds": 601,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "propfind",
+   "name": "WebDAV listings",
+   "checks": "Arbitrary PROPFIND bodies; the XML response is always well-formed",
+   "corpus": 6394,
+   "requests": 2619459,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "proppatch",
+   "name": "WebDAV property updates",
+   "checks": "Arbitrary PROPPATCH bodies; the XML response is always well-formed",
+   "corpus": 13661,
+   "requests": 2187299,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "search",
+   "name": "WebDAV search",
+   "checks": "Arbitrary SEARCH (RFC 5323) bodies; the XML response is always well-formed",
+   "corpus": 13211,
+   "requests": 2311664,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "headers",
+   "name": "Headers and file names",
+   "checks": "Paths, Destination, Range, If-Match, checksums, mtimes, Host, forms, uploaded file names",
+   "corpus": 3976,
+   "requests": 1604424,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "query",
+   "name": "Web search",
+   "checks": "Web search syntax; folding is stable and highlighting is exact; wildcard patterns folded, bounded, and their matching always ends",
+   "corpus": 2828,
+   "requests": 270459,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "manifest",
+   "name": "Backup manifest",
+   "checks": "Identity manifests read back from external storage; what is kept rereads identically",
+   "corpus": 5611,
+   "requests": 742866,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "thumb",
+   "name": "Images (thumbnails)",
+   "checks": "Arbitrary images through the JPEG decoder and thumbnailer; bounded memory, valid output",
+   "corpus": 823,
+   "requests": 7238,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "restore",
+   "name": "Restore from a snapshot",
+   "checks": "Arbitrary source trees (any name, links) restored; always succeeds, existing items untouched, nothing written outside the target, faithful copies",
+   "corpus": 1792,
+   "requests": 67844,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "oidc_url",
+   "name": "OIDC destination grammar",
+   "checks": "Arbitrary text as an `https` URL (issuer, discovery endpoints, back-channel hosts); never a panic, an accepted URL keeps its bytes and a lowercase host, port 1-65535",
+   "corpus": 155,
+   "requests": 41868709,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "target": "oidc_provider",
+   "name": "OIDC provider responses",
+   "checks": "Arbitrary provider responses (discovery document, token response, `id_token`); refused or parsed, never a panic",
+   "corpus": 2210,
+   "requests": 8379708,
+   "seconds": 61,
+   "crashes": 0,
+   "date": "2026-11-23T09:58:18+00:00"
+  }
+ ],
+ "models": [
+  {
+   "test": "dav::model::webdav_follows_the_model",
+   "name": "File operations",
+   "checks": "Model-based: random MKCOL, PUT, DELETE, MOVE, COPY sequences vs an in-memory model; tree, contents, file identities, folder ETags after every step",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "nc::share_model::client_links_follow_the_model",
+   "name": "Sharing links",
+   "checks": "Model-based: random link creations, changes, revocations through the OCS API; what clients list and what a guest can actually do",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "dav::isolation::alice_never_touches_bob",
+   "name": "User isolation",
+   "checks": "User isolation: random requests from one user, aimed at another user of the same tenant (his WebDAV path, traversal, Destination, file ids, his link), never succeed on his space, never return his names or contents, change no byte, xattr or database row of his",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "admin::tests::weakness_is_monotonic",
+   "name": "Password policy",
+   "checks": "Password policy: below the length always refused; a password accepted at a minimum stays accepted at a lower one and never contains the account name",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "admin::tests::must_change_follows_who_set_the_password",
+   "name": "Password set by the administrator",
+   "checks": "Password set by the administrator: random sets, refusals, disable/enable, sign-ins on 4 accounts in 2 tenants; must change exactly when the administrator set it, any change ends that account's sessions only",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "auth::tests::second_step_model",
+   "name": "Two-step verification",
+   "checks": "Two-step verification: random setups, codes, recovery codes, renewals, turn-offs and clock moves against a model; a code passes once inside ±1 step, a recovery code once and only from the latest set",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "auth::totp::tests::a_code_is_accepted_once",
+   "name": "TOTP codes",
+   "checks": "TOTP: any secret and time, a code is accepted only inside the window and never twice",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "dav::isolation::alpha_never_touches_beta",
+   "name": "Tenant isolation",
+   "checks": "Tenant isolation: random requests from one tenant's user, hostile ones included, change no byte, xattr or database row of another tenant",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "web::tests::login_return_is_always_local",
+   "name": "Post-login redirect",
+   "checks": "No open redirect: whatever the input, the post-login return address stays on the same site",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "web::tests::qr_login_reads_back",
+   "name": "Mobile QR login",
+   "checks": "The mobile login QR code parses back, as the Nextcloud apps parse it, into exactly the user, password and server",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "fs::manifest::tests::identity_and_etag_follow_the_content",
+   "name": "Restore by file copy",
+   "checks": "Restore by file copy with the manifest: for any content and any change since the backup, identity and ETag follow the content, contents never altered",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "fs::write::tests::restore_never_touches_the_current_tree",
+   "name": "Restore from a snapshot",
+   "checks": "beastbox restore: for any snapshot and current tree, existing items unchanged, copy equal to the source, no identity held twice",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "admin::tests::restored_name_is_legal_and_keeps_the_extension",
+   "name": "Name of a restored copy",
+   "checks": "beastbox restore: the name given to a copy is always a legal name, keeps the extension and fits the length bound",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "index::tests::glob_is_the_recursive_definition",
+   "name": "Search wildcards",
+   "checks": "Search wildcards: the linear matcher agrees with the obvious recursive definition of * and ?, on texts where they collide with letters",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "web::tests::the_page_chosen_holds_the_item",
+   "name": "Folder link at an item",
+   "checks": "Folder link at an item: whatever the folder and page sizes, the page chosen holds the item",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  },
+  {
+   "test": "web::tests::copy_names_are_new_and_legal",
+   "name": "Names of copies",
+   "checks": "Copy and duplicate: for any name, the names tried are the name first, then all different, legal, a file's extension kept last",
+   "exists": true,
+   "cases": 3000,
+   "date": "2026-11-23T09:58:18+00:00"
+  }
+ ],
+ "security": [
+  {
+   "rule": "User isolation",
+   "what": "Nothing a user sends touches or reveals another user's files, xattrs, links or database rows in the same tenant",
+   "count": 4,
+   "tests": "dav::isolation::alice_never_touches_bob, auth::tests::app_password_of_another_user_is_refused, web::tests_totp::wrong_codes_block_the_account, web::tests::forced_account_leaves_the_others_alone",
+   "missing": ""
+  },
+  {
+   "rule": "Tenant isolation",
+   "what": "Nothing a tenant's user sends touches another tenant's files, xattrs or database rows",
+   "count": 4,
+   "tests": "dav::isolation::alpha_never_touches_beta, http::tests::cross_tenant_token_refused, web::tests::share_password_limit_revoke_and_tenant, db::tests::tenants_are_isolated_in_db",
+   "missing": ""
+  },
+  {
+   "rule": "Single sign-on (OIDC)",
+   "what": "Only the account an administrator bound to the provider identity signs in; the flow is bound to its tenant and to the browser session, and nothing the provider returns is trusted beyond the verified TLS channel",
+   "count": 4,
+   "tests": "web::tests_oidc::oidc_full_flow_and_next, web::tests_oidc::oidc_flow_cookie_is_bound_to_the_tenant, web::tests_oidc::oidc_cross_tenant_flow_is_refused, auth::oidc::tests::cookie_bytes_and_tenants_are_bound",
+   "missing": ""
+  },
+  {
+   "rule": "Deny by default",
+   "what": "Unknown host refused; every route of the table requires a tenant (route audit)",
+   "count": 2,
+   "tests": "http::tests::every_route_requires_tenant, http::tests::tenant_resolution_and_default_deny",
+   "missing": ""
+  },
+  {
+   "rule": "Tenant-scoped SQL",
+   "what": "Every SQL query filters by tenant (query audit)",
+   "count": 1,
+   "tests": "db::tests::every_query_filters_by_tenant",
+   "missing": ""
+  },
+  {
+   "rule": "Authentication required",
+   "what": "No success on a protected route without valid credentials (also a fuzz oracle)",
+   "count": 2,
+   "tests": "http::tests::auth_failures_are_rate_limited, web::tests::surfaces_are_separated",
+   "missing": ""
+  },
+  {
+   "rule": "App passwords bound to their account",
+   "what": "Another user's app password, hostile user names, malformed Authorization headers refused",
+   "count": 1,
+   "tests": "auth::tests::app_password_of_another_user_is_refused",
+   "missing": ""
+  },
+  {
+   "rule": "Brute-force limits",
+   "what": "Failures limited per IP and per tenant; windows expire exactly",
+   "count": 3,
+   "tests": "auth::tests::failures_are_limited_per_ip_and_bounded, auth::tests::failure_windows_expire_exactly, http::tests::login_flows_limited_per_ip",
+   "missing": ""
+  },
+  {
+   "rule": "Session revocation",
+   "what": "Changing a password ends the account's web sessions; turning on two-step verification ends the other ones",
+   "count": 2,
+   "tests": "web::tests::password_change_ends_web_sessions, web::tests_totp::account_turns_it_on",
+   "missing": ""
+  },
+  {
+   "rule": "Password policy",
+   "what": "Minimum length (setting, never below 10), no account or tenant name, no repeated characters, sequences or keyboard rows, not the current one",
+   "count": 3,
+   "tests": "admin::tests::weakness_rules, admin::tests::weakness_is_monotonic, web::tests::account_tokens_and_password",
+   "missing": ""
+  },
+  {
+   "rule": "Password set by the administrator",
+   "what": "Replaced at the first sign-in; until then the session opens nothing else and no device connects",
+   "count": 4,
+   "tests": "web::tests::forced_session_pages_lead_to_welcome, web::tests::forced_session_actions_are_refused, web::tests::forced_account_cannot_connect_a_device, admin::tests::must_change_follows_who_set_the_password",
+   "missing": ""
+  },
+  {
+   "rule": "Disabled accounts",
+   "what": "No sign-in, sessions ended, devices and public links blocked while disabled",
+   "count": 2,
+   "tests": "web::tests::disabled_account_is_shut_out_until_enabled, cli::user_disable_enable",
+   "missing": ""
+  },
+  {
+   "rule": "Administration CLI",
+   "what": "Every command run as the real binary on real ZFS datasets: exit code, output and effect; the other user and the other tenant untouched",
+   "count": 11,
+   "tests": "cli::usage_and_version, cli::check_config_and_unknown_tenant, cli::user_add_refusals, cli::user_add_on_a_dataset, cli::user_list_columns, cli::user_passwd, cli::user_disable_enable, cli::user_2fa_reset, cli::verify_and_rescan, cli::manifest_and_restore, cli::serve_answers",
+   "missing": ""
+  },
+  {
+   "rule": "Two-step verification",
+   "what": "TOTP (RFC 6238) after the password, web and Login Flow; each code once (in SQL too); 5 wrong codes per account per 15 minutes; recovery codes single use; required tenants hold the session until set up",
+   "count": 8,
+   "tests": "auth::totp::tests::rfc6238_vectors, auth::tests::second_step_model, db::tests::totp_step_is_used_once_in_sql, web::tests_totp::sign_in_needs_the_code, web::tests_totp::wrong_codes_block_the_account, web::tests_totp::login_flow_goes_through_the_login, web::tests_totp::required_tenant_holds_until_set_up, web::tests_totp::gates_come_in_order",
+   "missing": ""
+  },
+  {
+   "rule": "Public links",
+   "what": "Wrong password, expiry, revocation, download limit, other tenant, rotated link key",
+   "count": 3,
+   "tests": "web::tests::share_password_limit_revoke_and_tenant, web::tests::renewed_link_key_ends_old_links, nc::share_model::client_links_follow_the_model",
+   "missing": ""
+  },
+  {
+   "rule": "Bounded uploads",
+   "what": "Concurrency caps, file count, sizes, slow-body timeout (slowloris), sanitized file names",
+   "count": 3,
+   "tests": "web::tests::drop_links_are_bounded, web::share::tests::drop_slots_are_bounded_and_given_back, http::tests::stalled_upload_is_cut",
+   "missing": ""
+  },
+  {
+   "rule": "Path confinement",
+   "what": "Traversal, symlinks, reserved names refused (SafePath, openat with O_RESOLVE_BENEATH)",
+   "count": 2,
+   "tests": "fs::tests::write_in_subdir_and_no_escape, fs::safepath::tests::rejects_hostile_paths",
+   "missing": ""
+  },
+  {
+   "rule": "Crash safety",
+   "what": "Atomic writes under a real kill -9: never a torn file, identity kept",
+   "count": 1,
+   "tests": "fs::tests::crash_during_atomic_write",
+   "missing": ""
+  },
+  {
+   "rule": "Capsicum sandbox",
+   "what": "The whole server runs in capability mode; global namespace access refused (ECAPMODE)",
+   "count": 1,
+   "tests": "http::tests::serves_in_capability_mode",
+   "missing": ""
+  },
+  {
+   "rule": "Front-end hygiene",
+   "what": "CSRF token on every POST form; no inline script, style or handler (strict CSP); no innerHTML/eval; no dead CSS",
+   "count": 2,
+   "tests": "web::audit::every_page_passes_the_audit, web::audit::the_audit_catches_what_it_should",
+   "missing": ""
+  },
+  {
+   "rule": "No open redirect",
+   "what": "The post-login return address only accepts same-site client links",
+   "count": 2,
+   "tests": "web::tests::login_return_is_always_local, web::tests::open_in_browser_from_a_client",
+   "missing": ""
+  },
+  {
+   "rule": "No version disclosure",
+   "what": "Public pages (login, links, errors, device login) never show the version",
+   "count": 1,
+   "tests": "web::tests::public_pages_hide_the_version",
+   "missing": ""
+  },
+  {
+   "rule": "Mobile QR login",
+   "what": "One-time display, CSRF, app password expires after 10 minutes if unused",
+   "count": 2,
+   "tests": "auth::tests::qr_password_waits_ten_minutes_for_its_first_use, web::tests::qr_code_for_the_mobile_app",
+   "missing": ""
+  },
+  {
+   "rule": "Restore never overwrites",
+   "what": "A past version comes back beside the current one, as new items; links never followed; a failure leaves the partial copy in the trash",
+   "count": 3,
+   "tests": "fs::write::tests::restore_from_copies_next_to_the_current_version, fs::write::tests::restore_never_touches_the_current_tree, web::tests::restore_brings_back_a_copy_next_to_the_current_version",
+   "missing": ""
+  },
+  {
+   "rule": "Backup manifest proves contents",
+   "what": "An identity and an ETag come back only to a file whose content is proven identical (SHA-1)",
+   "count": 3,
+   "tests": "fs::manifest::tests::content_decides_when_the_sum_is_known, fs::manifest::tests::identity_and_etag_follow_the_content, fs::manifest::tests::contents_read_in_parallel_decide_file_by_file",
+   "missing": ""
+  },
+  {
+   "rule": "Bounded search patterns",
+   "what": "Wildcards: 64 characters at most, matching bounded by the pattern and name lengths (never exponential)",
+   "count": 2,
+   "tests": "index::tests::glob_patterns, index::tests::glob_is_the_recursive_definition",
+   "missing": ""
+  }
+ ],
+ "mutants": [
+  {
+   "module": "admin/mod.rs",
+   "name": "Administration (CLI)",
+   "caught": 6,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "auth/mod.rs",
+   "name": "Authentication",
+   "caught": 71,
+   "missed": 2,
+   "timeout": 0,
+   "unviable": 4,
+   "survivors": [
+    "src/auth/mod.rs:178:65: replace == with != in Failures::record_account_at",
+    "src/auth/mod.rs:201:64: replace == with != in Failures::record_code_at"
+   ],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "auth/oidc.rs",
+   "name": "auth/oidc.rs",
+   "caught": 13,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 2,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "auth/oidc_net.rs",
+   "name": "auth/oidc_net.rs",
+   "caught": 2,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 1,
+   "survivors": [],
+   "date": "2026-11-21T11:24:13+00:00",
+   "commit": "09ef4026"
+  },
+  {
+   "module": "auth/totp.rs",
+   "name": "Two-step verification (TOTP)",
+   "caught": 88,
+   "missed": 1,
+   "timeout": 0,
+   "unviable": 1,
+   "survivors": [
+    "src/auth/totp.rs:140:26: replace | with ^ in base32"
+   ],
+   "date": "2026-11-18T10:43:45+00:00",
+   "commit": "9a5a81b4"
+  },
+  {
+   "module": "config.rs",
+   "name": "Configuration",
+   "caught": 24,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "dav/write.rs",
+   "name": "WebDAV: writes",
+   "caught": 4,
+   "missed": 1,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [
+    "src/dav/write.rs:39:12: replace > with >= in writable_tenant"
+   ],
+   "date": "2026-11-19T22:49:47+00:00",
+   "commit": "633548ee"
+  },
+  {
+   "module": "db/mod.rs",
+   "name": "Database",
+   "caught": 15,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 2,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "fs/casper.rs",
+   "name": "fs/casper.rs",
+   "caught": 5,
+   "missed": 2,
+   "timeout": 0,
+   "unviable": 1,
+   "survivors": [
+    "src/fs/casper.rs:246:35: replace | with ^ in CasperNet::connect",
+    "src/fs/casper.rs:246:56: replace | with ^ in CasperNet::connect"
+   ],
+   "date": "2026-11-21T11:24:13+00:00",
+   "commit": "09ef4026"
+  },
+  {
+   "module": "fs/dir.rs",
+   "name": "Disk: folders and metadata",
+   "caught": 8,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 2,
+   "date": "2026-11-17T09:20:07+00:00",
+   "commit": "301674bc"
+  },
+  {
+   "module": "fs/manifest.rs",
+   "name": "Disk: backup manifest",
+   "caught": 46,
+   "missed": 1,
+   "timeout": 0,
+   "unviable": 8,
+   "date": "2026-11-17T18:50:33+00:00",
+   "commit": "9c71fec7"
+  },
+  {
+   "module": "fs/write.rs",
+   "name": "Disk: atomic writes",
+   "caught": 7,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 1,
+   "survivors": [],
+   "date": "2026-11-18T10:43:45+00:00",
+   "commit": "9a5a81b4"
+  },
+  {
+   "module": "http.rs",
+   "name": "HTTP server and routes",
+   "caught": 2,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-18T10:43:45+00:00",
+   "commit": "9a5a81b4"
+  },
+  {
+   "module": "index/mod.rs",
+   "name": "Search index",
+   "caught": 43,
+   "missed": 3,
+   "timeout": 2,
+   "unviable": 2,
+   "date": "2026-11-17T18:50:33+00:00",
+   "commit": "9c71fec7"
+  },
+  {
+   "module": "main.rs",
+   "name": "main.rs",
+   "caught": 6,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "nc/mod.rs",
+   "name": "Nextcloud protocol (login, thumbnails)",
+   "caught": 26,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 3,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "tenant/mod.rs",
+   "name": "Tenant separation",
+   "caught": 1,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 1,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "web/activate.rs",
+   "name": "web/activate.rs",
+   "caught": 22,
+   "missed": 1,
+   "timeout": 0,
+   "unviable": 3,
+   "survivors": [
+    "src/web/activate.rs:73:26: replace || with && in find"
+   ],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "web/oidc.rs",
+   "name": "web/oidc.rs",
+   "caught": 3,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  },
+  {
+   "module": "web/share.rs",
+   "name": "Public links and drops",
+   "caught": 2,
+   "missed": 0,
+   "timeout": 0,
+   "unviable": 0,
+   "survivors": [],
+   "date": "2026-11-23T05:01:29+00:00",
+   "commit": "2c480bb9"
+  }
+ ],
+ "litmus": [
+  {
+   "suite": "basic",
+   "passed": 16,
+   "total": 16,
+   "failed": ""
+  },
+  {
+   "suite": "copymove",
+   "passed": 13,
+   "total": 13,
+   "failed": ""
+  },
+  {
+   "suite": "props",
+   "passed": 11,
+   "total": 14,
+   "failed": "propget, propmanyns, propset"
+  },
+  {
+   "suite": "locks",
+   "passed": 3,
+   "total": 3,
+   "failed": ""
+  },
+  {
+   "suite": "http",
+   "passed": 4,
+   "total": 4,
+   "failed": ""
+  }
+ ],
+ "performance": [
+  {
+   "measure": "RSS at rest",
+   "value": "6 MB; 27-34 MB after use (argon2 kept by the allocator)",
+   "budget": "< 50 MB",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "RSS under load (20 PROPFIND of 10,000 entries in parallel)",
+   "value": "33.8 MB",
+   "budget": "< 150 MB",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "PROPFIND 1,000 entries (xattrs included)",
+   "value": "7.7 ms direct, 13 ms via nginx",
+   "budget": "< 50 ms",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "PROPFIND 10,000 entries",
+   "value": "120 ms (12 ms / 1,000)",
+   "budget": "proportional",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "PUT small file",
+   "value": "2.2 ms",
+   "budget": "< 20 ms",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "Upload / read throughput",
+   "value": "246 MB/s / ~1 GB/s",
+   "budget": "local network",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "100,000 files: `rescan` / `verify`",
+   "value": "1.85 s / 1.29 s, ~11 MB",
+   "budget": "—",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "Cost at rest (60 s)",
+   "value": "0 CPU, 0 I/O, 0 context switches",
+   "budget": "zero",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "Search over 100,000 files",
+   "value": "index build 1.9 s, then 1 to 4 ms per search, +6 MB",
+   "budget": "< 100 ms",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "Identity manifest, 100,000 files",
+   "value": "1.2 s, 7.3 MB; `rescan` with manifest 1.9 s",
+   "budget": "—",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "100,000 files (98.7 GB): `manifest`",
+   "value": "1.4 s warm, 2.4 s cold",
+   "budget": "—",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "100,000 files (98.7 GB): restore, every content reread to prove it",
+   "value": "137 s with 8 readers (~725 MB/s); 306 s with 1",
+   "budget": "—",
+   "machine": "N100, NVMe"
+  },
+  {
+   "measure": "100,000 files (20.3 GB): `manifest`",
+   "value": "2.6 s warm, 2.9 s with no cache",
+   "budget": "—",
+   "machine": "HDD"
+  },
+  {
+   "measure": "100,000 files (20.3 GB): restore, every content reread to prove it",
+   "value": "1,181 s with 8 readers (~17 MB/s); 1,788 s with 1",
+   "budget": "—",
+   "machine": "HDD"
+  }
+ ],
+ "clients": [
+  {
+   "client": "Nextcloud desktop client 34.0.x and 35.0.2 (Windows, Linux)",
+   "shown": "Login Flow; tree displayed; change made over SSH then `rescan` detected in 26 s (only the changed branch reread); photo upload; 2.9 GB ISO in 30 chunks of 100 MiB, SHA-1 checked; renames (MOVE, identity kept); deletes to `.trash/`"
+  },
+  {
+   "client": "Android app 35.0.2",
+   "shown": "Login Flow; browsing; upload of a photo and a PDF; folder creation (409 then parent created by the app); Favorites, Recent and Photos tabs (`SEARCH`); star set from the app (`PROPPATCH`); *\"Deleted files\" not yet tried*"
+  },
+  {
+   "client": "`rclone` (`nextcloud` provider)",
+   "shown": "import of 4 files including an accented name, times kept, `rclone check`: 0 differences (SHA-1), second pass with no transfer"
+  },
+  {
+   "client": "`curl`",
+   "shown": "every WebDAV operation, chunked upload of 12 MB and 2 GB"
+  }
+ ],
+ "not_tested": [
+  {
+   "weight": "Before production",
+   "item": "**Power** loss (a `kill -9` leaves the kernel cache intact); real full pool (only the quota was tested)."
+  },
+  {
+   "weight": "Minor",
+   "item": "`kill -9` mid ETag propagation under real conditions (covered by a unit test of the journal)."
+  },
+  {
+   "weight": "Important",
+   "item": "Resuming an interrupted upload **by the clients**; chunked upload and download from the Android app (the desktop client's chunked upload works: 1 GB in 10 chunks, 2026-11-16)."
+  },
+  {
+   "weight": "Important",
+   "item": "Two domains with real clients at the same time. The desktop client's virtual files mode works (browsing, download on open); \"Always keep on this device\" only fetches the content after a sync, on the client's side."
+  },
+  {
+   "weight": "Minor",
+   "item": "Link sharing from the iOS app and the macOS client (same API as Windows and Android, not tried)."
+  },
+  {
+   "weight": "Before production",
+   "item": "Memory abuse test: many slow clients, 1 hour of repeated load (§10 Memory)."
+  },
+  {
+   "weight": "Important",
+   "item": "Copying a file from a snapshot with its xattrs; backup with a real `rclone` to pCloud with the manifest."
+  },
+  {
+   "weight": "Minor",
+   "item": "Deliberate loss of identities on a synced folder with the Android app (done with two desktop clients, `CLIENTS.md`)."
+  },
+  {
+   "weight": "Important",
+   "item": "JavaScript in an automated browser; screen readers; Safari; keyboard accessibility (manual trial to do)."
+  },
+  {
+   "weight": "Before production",
+   "item": "External scan behind the proxy, **human security review** (required before exposure, §12.5; guide in `SURFACE.md`)."
+  },
+  {
+   "weight": "Important",
+   "item": "Two-step verification with a real authenticator app on a phone, and the Login Flow code field with the real desktop and mobile clients (covered by end to end tests with RFC 6238 codes)."
+  }
+ ]
+}
