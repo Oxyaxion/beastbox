@@ -4,6 +4,19 @@ One entry per release, newest first. Each release is a `vX.Y.Z` tag; the tag ann
 **Before upgrading** (anything that needs action or that clients will notice), then Changed, Added, Fixed, Security. Details are
 in `git log vX.Y.Z-1..vX.Y.Z`.
 
+## 0.16.2 — 2026-11-23
+
+### Fixed
+- **Sign-in refused from every browser** ("This form must be sent from this site's own page"). The server sends
+  `Referrer-Policy: no-referrer`, so browsers send `Origin: null` on our own forms, and 0.16.1 refused `null`. Now
+  `Sec-Fetch-Site`, set by the browser and not forgeable by a page, decides alone when present; `Origin` is used only
+  by browsers that do not send it, and `null` is still refused there. Sign-in, activation links and share link
+  passwords are all concerned.
+
+### Tests
+- The header pair a real browser sends (`Sec-Fetch-Site: same-origin` with `Origin: null`) signs in; a property test
+  of the rule (`Sec-Fetch-Site` decides alone; without it only this site's `Origin` passes).
+
 ## 0.16.1 — 2026-11-22
 
 ### Before upgrading
