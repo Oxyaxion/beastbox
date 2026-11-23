@@ -1143,6 +1143,12 @@ async fn forms_without_a_session_refuse_other_sites() {
             "{hdr:?}"
         );
     }
+    // Regression: `Referrer-Policy: no-referrer` makes a real browser send this pair on our own form.
+    let browser = [A, p, ("sec-fetch-site", "same-origin"), ("origin", "null")];
+    assert_eq!(
+        call(&e.app, "POST", "/login", &browser, body).await.0,
+        StatusCode::SEE_OTHER
+    );
     assert_eq!(
         call(&e.app, "POST", "/login", &[A, p], body).await.0,
         StatusCode::SEE_OTHER
@@ -5180,5 +5186,24 @@ proptest::proptest! {
                 proptest::prop_assert!(n.ends_with(&ext), "{:?} keeps {:?}", n, ext);
             }
         }
+    }
+}
+
+proptest::proptest! {
+    /// `from_another_site`: `Sec-Fetch-Site`, when present, decides alone whatever `Origin` says; without it, only an
+    /// `Origin` equal to this site's passes; neither header: let through.
+    #[test]
+    fn other_site_rule(site in proptest::option::of("[a-z-]{0,12}|same-origin|none|cross-site|same-site"),
+                       origin in proptest::option::of("null|https://files\\.alpha\\.example|https://[a-z]{1,8}\\.example")) {
+        let base = crate::http::Base("https://files.alpha.example".into());
+        let mut h = HeaderMap::new();
+        if let Some(s) = &site { h.insert("sec-fetch-site", s.parse().unwrap()); }
+        if let Some(o) = &origin { h.insert("origin", o.parse().unwrap()); }
+        let expected = match (&site, &origin) {
+            (Some(s), _) => s != "same-origin" && s != "none",
+            (None, Some(o)) => o != "https://files.alpha.example",
+            (None, None) => false,
+        };
+        proptest::prop_assert_eq!(super::from_another_site(&h, &base), expected);
     }
 }

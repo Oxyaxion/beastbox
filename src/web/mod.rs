@@ -595,13 +595,14 @@ pub(crate) async fn sign_in_again(app: &Arc<App>, w: &WebUser, next: &str) -> Re
         .into_response()
 }
 
-/// A form posted from another site (F1: a forged sign-in into the attacker's account, or a forged use of a link):
-/// `Sec-Fetch-Site` other than `same-origin`/`none`, or an `Origin` that is not this site's (`null` included).
-/// Browsers send them; a client that sends neither (CLI, sync tools) is not a browser to protect, it is let through.
+/// A form posted from another site (F1: a forged sign-in into the attacker's account, or a forged use of a link).
+/// `Sec-Fetch-Site`, set by the browser and not forgeable by a page, decides alone when present (`same-origin`/`none`
+/// pass). `Origin` is only for browsers without it; `null` is refused there. Our `Referrer-Policy: no-referrer` makes
+/// browsers send `Origin: null` on our own forms, so it cannot veto a `same-origin` verdict.
+/// A client that sends neither (CLI, sync tools) is not a browser to protect, it is let through.
 pub(crate) fn from_another_site(h: &HeaderMap, base: &Base) -> bool {
-    let site = h.get("sec-fetch-site").and_then(|v| v.to_str().ok());
-    if site.is_some_and(|s| s != "same-origin" && s != "none") {
-        return true;
+    if let Some(s) = h.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
+        return s != "same-origin" && s != "none";
     }
     h.get(header::ORIGIN)
         .is_some_and(|o| o.to_str().ok() != Some(base.0.as_str()))
