@@ -8,10 +8,10 @@ links. Built for a family or a small association that wants its files at home, o
 Security and testing are at the heart of the project, but Beastbox is new and has not been audited by an independent
 security firm.
 
-**[Test report](https://modulus.codeberg.page/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
+**[Test report](https://oxyaxion.github.io/beastbox/)** of the latest release: tests, coverage, fuzzing, mutation testing, security
 rules.
 
-**[Releases](https://codeberg.org/Modulus/beastbox/releases)**: FreeBSD 15 amd64 builds with their SHA-256, and the
+**[Releases](https://github.com/Oxyaxion/beastbox/releases)**: FreeBSD 15 amd64 builds with their SHA-256, and the
 release notes.
 
 Developed with security and testing in mind.
@@ -41,11 +41,11 @@ Developed with security and testing in mind.
 - **FreeBSD native** — jails, `rc.d`, `pf`, no portability layer; `unsafe` forbidden outside the filesystem module;
   dependencies justified one by one.
 - **Tested paranoidly** — unit, end-to-end, property, fuzz and mutation testing on every release, published in the
-  [test report](https://modulus.codeberg.page/beastbox/).
+  [test report](https://oxyaxion.github.io/beastbox/).
 
 ## Documentation
 - **Use**: [install](docs/admin/installation.md) · [upgrade](docs/admin/upgrade.md) ·
-  [back up and restore](docs/admin/backup.md) · [release notes](CHANGELOG.md) · [test report](https://modulus.codeberg.page/beastbox/)
+  [back up and restore](docs/admin/backup.md) · [release notes](CHANGELOG.md) · [test report](https://oxyaxion.github.io/beastbox/)
 - **Develop**: [specification](docs/dev/beastbox-plan.md) · [testing](docs/dev/TESTING.md) ·
   [attack surface](docs/dev/SURFACE.md) · [validation](docs/dev/VALIDATION.md) · [observed clients](docs/dev/CLIENTS.md) ·
   [dependencies](docs/dev/DEPS.md)

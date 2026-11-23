@@ -2,7 +2,7 @@
 # A release, measured before it exists: nothing is committed or tagged unless every gate passed.
 #   scripts/release.sh X.Y.Z             from the Linux machine, at the root of the repository, on main, tree clean,
 #                                        with the CHANGELOG.md entry "## X.Y.Z — date" written at the top
-#   scripts/release.sh X.Y.Z --publish   the same, then git push, the test report on Codeberg Pages
+#   scripts/release.sh X.Y.Z --publish   the same, then git push, the test report on GitHub Pages
 #                                        (scripts/report-pages.sh) and the release with the FreeBSD archive
 #                                        (scripts/gitea-release.sh)
 #   scripts/release.sh X.Y.Z --reuse     skip the campaign, reuse the last green one (target/ci, docs/dev/bench-runs.json)

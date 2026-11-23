@@ -58,7 +58,7 @@ always `-timeout=10` (the default of 20 minutes per input hides a hang).
 The test report is versioned: at each tag, after `scripts/vm.sh ci --long` (results and run records copied back from the VM):
 `bench-report.py report --reuse`, `bench-report.py snapshot` (→ `docs/bench/vX.Y.Z.json`, committed with the release),
 `bench-report.py site` (one page per version, `index.html` = the latest), and when the owner asks for it,
-`scripts/report-pages.sh` → https://modulus.codeberg.page/beastbox/ (the `pages` branch, one commit, pushed by force). Weights of the "not tested yet" items (`[Before production]`, `[Important]`, `[Minor]`) are the owner's.
+`scripts/report-pages.sh` → https://oxyaxion.github.io/beastbox/ (the `pages` branch, one commit, pushed by force). Weights of the "not tested yet" items (`[Before production]`, `[Important]`, `[Minor]`) are the owner's.
 
 ## Local CI: a throwaway FreeBSD VM (`scripts/vm.sh`)
 
