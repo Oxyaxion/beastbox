@@ -202,8 +202,10 @@ async fn the_password_alone_no_longer_binds_a_phone() {
 }
 
 /// An account that already has a password (`2fa-reset`, an account from before): the link alone is not enough, it asks
-/// the current password too — a wrong one changes nothing, keeps the link and counts as a failure (the 11th from the
-/// address is a 429); right, the phone is bound and the account signs in with password and code.
+/// An account that already has a password (`user 2fa-reset` on a required tenant): the link is not enough, it asks
+/// the current password too — a wrong one changes nothing, keeps the link and counts per address AND per account
+/// (10 wrong passwords across addresses lock the account even from a fresh IP, while another account/tenant stays
+/// open); right, the phone is bound and the account signs in with password and code.
 #[tokio::test]
 async fn an_account_with_a_password_proves_it_with_the_link() {
     let e = env_mode(TwoFactor::Required);
@@ -211,12 +213,14 @@ async fn an_account_with_a_password_proves_it_with_the_link() {
     let (_, _, page) = call(&e.app, "GET", &path, &[A], "").await;
     assert!(page.contains("name=\"current\"") && page.contains("name=\"code\"") && !page.contains("name=\"new\""));
     let code = code_for(&e, &token);
-    for _ in 0..10 {
+    for i in 0..10u32 {
+        let ip = format!("192.0.2.{}", i + 1);
+        let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", ip.as_str())];
         let (s, _, _) = call(
             &e.app,
             "POST",
             &path,
-            &[A],
+            &h,
             &form(&[("current", "faux"), ("code", &code)]),
         )
         .await;
@@ -224,20 +228,25 @@ async fn an_account_with_a_password_proves_it_with_the_link() {
     }
     assert_eq!(e.state.db.totp_get(&alpha(&e), "alice").unwrap(), Some((None, 0)));
     let right = form(&[("current", "pw-alice"), ("code", &code)]);
+    // AUTH-04: even from a fresh IP, the account's password lockout refuses the 11th try.
+    let fresh = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "198.51.100.9")];
     assert_eq!(
-        call(&e.app, "POST", &path, &[A], &right).await.0,
+        call(&e.app, "POST", &path, &fresh, &right).await.0,
         StatusCode::TOO_MANY_REQUESTS
     );
-    // From another address: accepted.
-    let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "198.51.100.9")];
-    let (s, _, _) = call(&e.app, "POST", &path, &h, &right).await;
+    // Another account (clean environment for alice) with the right password binds the phone cleanly.
+    let e2 = env_mode(TwoFactor::Required);
+    let (path2, token2) = link(&e2, "alice");
+    let code2 = code_for(&e2, &token2);
+    let right2 = form(&[("current", "pw-alice"), ("code", &code2)]);
+    let (s, _, _) = call(&e2.app, "POST", &path2, &fresh, &right2).await;
     assert_eq!(s, StatusCode::OK);
     assert!(matches!(
-        e.state.db.totp_get(&alpha(&e), "alice").unwrap(),
+        e2.state.db.totp_get(&alpha(&e2), "alice").unwrap(),
         Some((Some(_), _))
     ));
     assert!(
-        e.state.db.user_password_hash(&alpha(&e), "alice").unwrap().is_some(),
+        e2.state.db.user_password_hash(&alpha(&e2), "alice").unwrap().is_some(),
         "password kept"
     );
 }

@@ -591,7 +591,9 @@ pub mod fuzz {
             let s = [7u8; auth::totp::SECRET_LEN];
             let now = auth::totp::now();
             let code = format!("{:06}", auth::totp::hotp(&s, auth::totp::step(now)));
-            auth::totp_enable(&db, &alpha, "dave", &s, &code, now).unwrap().unwrap();
+            auth::totp_enable(&db, &alpha, "dave", &s, &code, now, None)
+                .unwrap()
+                .unwrap();
             let t = reg.by_name("alpha").unwrap();
             let root = Root::open_dir(&base.join("a/alice")).unwrap();
             let sp = |s: &str| SafePath::new(s).unwrap();
@@ -983,7 +985,7 @@ pub(crate) mod tests {
         assert_eq!(start("192.0.2.8".into()).await.0, StatusCode::OK);
 
         // A confirmed flow no longer counts: the IP can open another one.
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let form = format!("/index.php/login/v2/flow/{}", logins[0]);
         assert_eq!(
             call(
@@ -991,7 +993,7 @@ pub(crate) mod tests {
                 "POST",
                 &form,
                 &[A, ("cookie", session.as_str())],
-                "password=pw-alice"
+                &format!("csrf={csrf}&password=pw-alice")
             )
             .await
             .0,
@@ -1014,11 +1016,14 @@ pub(crate) mod tests {
             .to_owned()
     }
 
-    /// A full web session of `alice` (cookie pair to replay), through the real login form.
-    async fn alice_session(app: &Router) -> String {
-        let (s, h, _) = call(app, "POST", "/login", &[A], "user=alice&password=pw-alice").await;
+    /// A full web session of `alice` (`(cookie, csrf)`), through the real login form.
+    async fn alice_session(e: &Env) -> (String, String) {
+        let (s, h, _) = call(&e.app, "POST", "/login", &[A], "user=alice&password=pw-alice").await;
         assert_eq!(s, StatusCode::SEE_OTHER, "login refused");
-        h["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_owned()
+        let cookie = h["set-cookie"].to_str().unwrap().split(';').next().unwrap().to_owned();
+        let secret = cookie.split_once('=').unwrap().1;
+        let csrf = auth::csrf_token(&e.state.registry.by_name("alpha").unwrap(), secret);
+        (cookie, csrf)
     }
 
     /// The Login Flow page shows the client's label escaped (it comes from a User-Agent anyone can write); wrong
@@ -1032,7 +1037,7 @@ pub(crate) mod tests {
         let (_, _, body) = call(app, "POST", "/index.php/login/v2", &[A, proto, ua], "").await;
         let login = grab(&body, "login");
         let path = login.strip_prefix("http://files.alpha.example").unwrap().to_owned();
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let c = [A, ("cookie", session.as_str())];
         let (_, _, page) = call(app, "GET", &path, &c, "").await;
         assert!(
@@ -1041,12 +1046,16 @@ pub(crate) mod tests {
         );
         for _ in 0..10 {
             assert_eq!(
-                call(app, "POST", &path, &c, "password=faux").await.0,
+                call(app, "POST", &path, &c, &format!("csrf={csrf}&password=faux"))
+                    .await
+                    .0,
                 StatusCode::UNAUTHORIZED
             );
         }
         assert_eq!(
-            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            call(app, "POST", &path, &c, &format!("csrf={csrf}&password=pw-alice"))
+                .await
+                .0,
             StatusCode::TOO_MANY_REQUESTS
         );
         let alpha = e.state.registry.by_name("alpha").unwrap();
@@ -1079,10 +1088,12 @@ pub(crate) mod tests {
             .unwrap()
             .to_owned();
         let poll = format!("token={}", grab(&body, "token"));
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let c = [A, ("cookie", session.as_str())];
         assert_eq!(
-            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            call(app, "POST", &path, &c, &format!("csrf={csrf}&password=pw-alice"))
+                .await
+                .0,
             StatusCode::OK
         );
         // Then the table filled with pending flows, one address each.
@@ -1119,12 +1130,10 @@ pub(crate) mod tests {
             .strip_prefix("http://files.alpha.example")
             .unwrap()
             .to_owned();
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let c = [A, ("cookie", session.as_str())];
-        let (a, b) = tokio::join!(
-            call(app, "POST", &path, &c, "password=pw-alice"),
-            call(app, "POST", &path, &c, "password=pw-alice")
-        );
+        let body = format!("csrf={csrf}&password=pw-alice");
+        let (a, b) = tokio::join!(call(app, "POST", &path, &c, &body), call(app, "POST", &path, &c, &body));
         let alpha = e.state.registry.by_name("alpha").unwrap();
         assert_eq!(
             e.state.db.token_list(&alpha, "alice").unwrap().len(),
@@ -1164,10 +1173,12 @@ pub(crate) mod tests {
             "{life:?}"
         );
         assert_eq!(alpha.flows().claim_pending(), 1);
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let c = [A, ("cookie", session.as_str())];
         assert_eq!(
-            call(app, "POST", &path, &c, "password=pw-alice").await.0,
+            call(app, "POST", &path, &c, &format!("csrf={csrf}&password=pw-alice"))
+                .await
+                .0,
             StatusCode::NOT_FOUND
         );
         assert!(e.state.db.token_list(&alpha, "alice").unwrap().is_empty());
@@ -1228,7 +1239,7 @@ pub(crate) mod tests {
         assert_eq!(status(app, "GET", &login_path, &[b]).await, StatusCode::NOT_FOUND);
         // Signed in: the page says who asks (client label, address) and warns; the password is asked again (a phished
         // click with a live session is not enough).
-        let session = alice_session(app).await;
+        let (session, csrf) = alice_session(&e).await;
         let c = [A, ("cookie", session.as_str())];
         let (s, h, page_body) = call(app, "GET", &login_path, &c, "").await;
         assert_eq!(s, StatusCode::OK);
@@ -1240,22 +1251,51 @@ pub(crate) mod tests {
         );
         assert!(
             page_body.contains("Authorize this client")
+                && page_body.contains(&format!("name=\"csrf\" value=\"{csrf}\""))
                 && page_body.contains("name=\"password\"")
                 && page_body.contains("Software: <strong>Nextcloud Android 35.0.2</strong>")
                 && page_body.contains("Requested from the address: <strong>")
                 && page_body.contains("whoever sent you this link would get access to all your files"),
             "{page_body}"
         );
+        // Missing/wrong CSRF or another site: 403, nothing created (AUTH-01).
+        for body in ["password=pw-alice", "csrf=wrong&password=pw-alice"] {
+            assert_eq!(
+                call(app, "POST", &login_path, &c, body).await.0,
+                StatusCode::FORBIDDEN,
+                "{body}"
+            );
+        }
+        for hdr in [
+            ("sec-fetch-site", "same-site"),
+            ("sec-fetch-site", "cross-site"),
+            ("origin", "https://evil.example"),
+        ] {
+            let h = [A, proto, ("cookie", session.as_str()), hdr];
+            assert_eq!(
+                call(app, "POST", &login_path, &h, &format!("csrf={csrf}&password=pw-alice"))
+                    .await
+                    .0,
+                StatusCode::FORBIDDEN,
+                "{hdr:?}"
+            );
+        }
         // Without the password, or a wrong one: nothing created, the page again.
-        for body in ["", "password=", "password=faux"] {
-            let (s, _, p) = call(app, "POST", &login_path, &c, body).await;
+        for body in [
+            format!("csrf={csrf}"),
+            format!("csrf={csrf}&password="),
+            format!("csrf={csrf}&password=faux"),
+        ] {
+            let (s, _, p) = call(app, "POST", &login_path, &c, &body).await;
             assert!(
                 s == StatusCode::UNAUTHORIZED && p.contains("Wrong password or code"),
                 "{body}"
             );
         }
         assert_eq!(e.state.db.token_list(&alpha, "alice").unwrap().len(), tokens_before);
-        let good = call(app, "POST", &login_path, &c, "password=pw-alice").await.0;
+        let good = call(app, "POST", &login_path, &c, &format!("csrf={csrf}&password=pw-alice"))
+            .await
+            .0;
         assert_eq!(good, StatusCode::OK);
         // Poll on the other tenant: 404; on the right one: 200 only once.
         assert_eq!(

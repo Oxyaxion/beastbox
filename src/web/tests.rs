@@ -1112,6 +1112,123 @@ async fn an_attacked_account_still_opens_on_a_known_device() {
     assert_eq!(s, StatusCode::SEE_OTHER);
 }
 
+/// AUTH-02: 10 wrong passwords on a nonexistent valid-syntax account answer 429 from a second address just like an
+/// existing account (no 429 vs 401 existence oracle), without ever locking real accounts or the other tenant.
+#[tokio::test]
+async fn login_lockout_does_not_reveal_existing_accounts() {
+    let e = env();
+    for user in ["alice", "ghost"] {
+        for i in 0..10u32 {
+            assert_eq!(
+                wrong_login(&e, user, &format!("192.0.2.{}", i + 1)).await,
+                StatusCode::UNAUTHORIZED,
+                "{user} attempt {i}"
+            );
+        }
+    }
+    let fresh = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "203.0.113.55")];
+    for user in ["alice", "ghost"] {
+        let (s, _, _) = call(&e.app, "POST", "/login", &fresh, &format!("user={user}&password=faux")).await;
+        assert_eq!(s, StatusCode::TOO_MANY_REQUESTS, "{user}: must both answer 429");
+    }
+    // Other tenant's alice is untouched.
+    let (s, _, _) = call(
+        &e.app,
+        "POST",
+        "/login",
+        &[B, ("x-real-ip", "203.0.113.55")],
+        "user=alice&password=pw-alice",
+    )
+    .await;
+    assert_eq!(s, StatusCode::SEE_OTHER);
+}
+
+/// AUTH-04: wrong passwords across distinct addresses lock the account on every password-verifying web route
+/// (`/web/account/password`, `/web/account/tokens`, `/web/account/qr`, `/web/account/2fa/confirm`, `/web/account/2fa`,
+/// and Login Flow), while another user and the other tenant stay unaffected.
+#[tokio::test]
+async fn account_password_lockout_holds_across_ips_on_web_forms() {
+    let e = env();
+    let t = e.state.registry.by_name("alpha").unwrap();
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
+    // 10 wrong passwords from 10 distinct IPs via /web/account/tokens.
+    for i in 0..10u32 {
+        let ip = format!("192.0.2.{}", i + 1);
+        let h = [A, ("cookie", cookie.as_str()), ("x-real-ip", ip.as_str())];
+        let (s, _, _) = call(
+            &e.app,
+            "POST",
+            "/web/account/tokens",
+            &h,
+            &format!("csrf={csrf}&label=x&password=faux"),
+        )
+        .await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED, "ip {ip}");
+    }
+    // From a fresh IP, even the right password gets 429 on every password-checking form.
+    let fresh = [A, ("cookie", cookie.as_str()), ("x-real-ip", "203.0.113.99")];
+    let (_, _, flow_body) = call(
+        &e.app,
+        "POST",
+        "/index.php/login/v2",
+        &[A, ("x-forwarded-proto", "http")],
+        "",
+    )
+    .await;
+    let flow = flow_body
+        .split("/index.php/login/v2/flow/")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let flow_path = format!("/index.php/login/v2/flow/{flow}");
+    for (path, body) in [
+        ("/web/account/tokens", format!("csrf={csrf}&label=x&password=pw-alice")),
+        ("/web/account/qr", format!("csrf={csrf}&password=pw-alice")),
+        (
+            "/web/account/password",
+            format!("csrf={csrf}&current=pw-alice&new=mon-nouveau-secret-42"),
+        ),
+        (
+            "/web/account/2fa/confirm",
+            format!("csrf={csrf}&password=pw-alice&code=000000"),
+        ),
+        (flow_path.as_str(), format!("csrf={csrf}&password=pw-alice")),
+    ] {
+        assert_eq!(
+            call(&e.app, "POST", path, &fresh, &body).await.0,
+            StatusCode::TOO_MANY_REQUESTS,
+            "{path}"
+        );
+    }
+    // Enable TOTP directly and verify /web/account/2fa is also blocked by account password lockout.
+    let _ = crate::auth::tests::enable_totp(&e.state.db, &t, "alice");
+    let body = format!(
+        "csrf={csrf}&op=codes&password=pw-alice&code={}",
+        crate::auth::tests::code_at(0)
+    );
+    assert_eq!(
+        call(&e.app, "POST", "/web/account/2fa", &fresh, &body).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // Other tenant's alice is untouched from the same fresh IP.
+    let (bc, bcsrf) = login(&e, B, "pw-alice").await;
+    let bh = [B, ("cookie", bc.as_str()), ("x-real-ip", "203.0.113.99")];
+    assert_eq!(
+        call(
+            &e.app,
+            "POST",
+            "/web/account/tokens",
+            &bh,
+            &format!("csrf={bcsrf}&label=x&password=pw-alice")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+}
+
 /// F1: a sign-in posted from another site (a forged form signing the victim's browser into the attacker's account) is
 /// refused — by `Sec-Fetch-Site` and `Origin`, which browsers send; the same for the other forms without a session
 /// (an activation link, a share link's password). Same-origin posts and clients that send neither still work.
@@ -4107,13 +4224,13 @@ async fn forced_account_cannot_connect_a_device() {
     let body = welcome_form(&csrf, "donne-par-l-admin", "mon-secret-a-moi", "mon-secret-a-moi");
     assert_eq!(call(&e.app, "POST", "/web/welcome", &c, &body).await.0, StatusCode::OK);
     // The session is closed by the change: sign in with the new password, then confirm the flow.
-    let (cookie, _) = login(&e, A, "mon-secret-a-moi").await;
+    let (cookie, csrf) = login(&e, A, "mon-secret-a-moi").await;
     let (s, _, _) = call(
         &e.app,
         "POST",
         &form,
         &[A, ("cookie", cookie.as_str())],
-        "password=mon-secret-a-moi",
+        &format!("csrf={csrf}&password=mon-secret-a-moi"),
     )
     .await;
     assert_eq!(s, StatusCode::OK);

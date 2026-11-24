@@ -152,7 +152,7 @@ pub(super) async fn submit(
     };
     let n = needs(&t, &app, &row);
     let again = |code: StatusCode, m: &str| render(code, &page_for(&app, &t, lang, &origin, (&row, n, &token), m));
-    if t.failures().ip_blocked(ip.0) {
+    if t.failures().ip_blocked(ip.0) || (n.current && t.failures().account_blocked(&row.user)) {
         return too_many();
     }
     let field = |k: &str| form_field(&body, k).unwrap_or_default();
@@ -238,6 +238,7 @@ pub(super) async fn submit(
         Ok(Ok(Err(()))) => {
             tracing::warn!(tenant = t.name(), ip = %ip.0, user = row.user, "activation: wrong current password");
             t.failures().record_ip(ip.0);
+            t.failures().record_account(&row.user);
             again(
                 StatusCode::UNAUTHORIZED,
                 lang.t("Wrong current password: nothing was changed."),

@@ -421,9 +421,9 @@ fn page(lang: Lang, code: StatusCode, body: &str) -> Response {
 }
 
 /// The confirmation form: who asks (the client's label and IP, escaped), a warning against links received from
-/// someone else, and the `Reproof` (password, code, or nothing when the sign-in is recent) — a session and one click are
-/// not enough to hand out a permanent app password.
-fn flow_form(lang: Lang, (label, ip): (&str, std::net::IpAddr), field: &str, message: &str) -> String {
+/// someone else, the session's CSRF token, and the `Reproof` (password, code, or nothing when the sign-in is recent)
+/// — a session and one click are not enough to hand out a permanent app password.
+fn flow_form(lang: Lang, (label, ip): (&str, std::net::IpAddr), csrf: &str, field: &str, message: &str) -> String {
     let proof = match field {
         "password" => format!(
             "<p><label>{} <input name=\"password\" type=\"password\" autocomplete=\"current-password\" required></label></p>",
@@ -442,7 +442,8 @@ fn flow_form(lang: Lang, (label, ip): (&str, std::net::IpAddr), field: &str, mes
     };
     format!(
         "<h1>{}</h1>{message}<p>{}</p><ul><li>{} <strong>{}</strong></li><li>{} <strong>{}</strong></li></ul>\
-         <p><strong>{}</strong></p><form method=\"post\">{proof}<p><button>{}</button></p></form>",
+         <p><strong>{}</strong></p><form method=\"post\"><input type=\"hidden\" name=\"csrf\" value=\"{}\">{proof}\
+         <p><button type=\"submit\">{}</button></p></form>",
         lang.t("Connect a client"),
         lang.t("A client requests access to your files."),
         lang.t("Software:"),
@@ -450,6 +451,7 @@ fn flow_form(lang: Lang, (label, ip): (&str, std::net::IpAddr), field: &str, mes
         lang.t("Requested from the address:"),
         esc(&ip.to_string()),
         lang.t("Only authorize it if you started this connection yourself, a moment ago, from this software. Otherwise close this page: whoever sent you this link would get access to all your files."),
+        esc(csrf),
         lang.t("Authorize this client"),
     )
 }
@@ -493,24 +495,35 @@ pub async fn flow_page(
     match flow_session(&app, &t, &h, &next).await {
         Ok(w) => {
             let field = w.reproof().field();
-            page(lang, StatusCode::OK, &flow_form(lang, (&label, ip), field, ""))
+            page(lang, StatusCode::OK, &flow_form(lang, (&label, ip), &w.csrf, field, ""))
         }
         Err(r) => r,
     }
 }
 
 /// `POST /index.php/login/v2/flow/{token}`: creates the app password of the signed-in account and hands it to the
-/// flow, after the `Reproof` (a phished click with a live session is not enough). The 256-bit token in the URL serves
-/// as CSRF protection (unpredictable for a third party).
+/// flow, after CSRF (`from_another_site` + session `csrf`) and the `Reproof` — the URL token comes from the public
+/// `/index.php/login/v2` endpoint, so an attacker can obtain one and it cannot serve as CSRF protection.
 pub async fn flow_submit(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
+    Extension(origin_base): Extension<Base>,
     Extension(ip): Extension<ClientIp>,
     Path(login): Path<String>,
     h: HeaderMap,
     body: Bytes,
 ) -> Response {
     let lang = Lang::from(&h, None);
+    if crate::web::from_another_site(&h, &origin_base) {
+        return page(
+            lang,
+            StatusCode::FORBIDDEN,
+            &format!(
+                "<p role=\"alert\"><strong>{}</strong></p>",
+                esc(lang.t("This form must be sent from this site's own page."))
+            ),
+        );
+    }
     let Some(origin) = flow_origin(&t, &login) else {
         return page(
             lang,
@@ -523,12 +536,18 @@ pub async fn flow_submit(
         Ok(w) => w,
         Err(r) => return r,
     };
+    if !crate::web::csrf_ok(form_field(&body, "csrf").as_deref(), &w.csrf) {
+        let field = w.reproof().field();
+        let m = lang.t("Invalid form token: reload the page.");
+        let form = flow_form(lang, (&origin.0, origin.1), &w.csrf, field, m);
+        return page(lang, StatusCode::FORBIDDEN, &form);
+    }
     match crate::web::reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
         Ok(()) => {}
         Err(crate::web::Unproven::Wrong) => {
             let field = w.reproof().field();
             let m = lang.t("Wrong password or code: nothing was created.");
-            let form = flow_form(lang, (&origin.0, origin.1), field, m);
+            let form = flow_form(lang, (&origin.0, origin.1), &w.csrf, field, m);
             return page(lang, StatusCode::UNAUTHORIZED, &form);
         }
         Err(crate::web::Unproven::TooMany) => return too_many(),

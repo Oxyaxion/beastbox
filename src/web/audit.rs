@@ -354,6 +354,37 @@ async fn every_page_passes_the_audit() {
     .2;
     assert!(qr.contains("<svg role=\"img\""), "the QR code page itself is audited");
     pages.push(("/web/account/qr".into(), qr));
+    let tf_setup = call(app, "POST", "/web/account/2fa/start", &c, &format!("csrf={csrf}"))
+        .await
+        .2;
+    assert!(
+        tf_setup.contains("id=\"tf-setup-pw\"") && tf_setup.contains("id=\"code-totp\""),
+        "the 2FA setup page itself is audited"
+    );
+    pages.push(("/web/account/2fa/start".into(), tf_setup));
+    let (_, _, flow_json) = call(
+        app,
+        "POST",
+        "/index.php/login/v2",
+        &[A, ("x-forwarded-proto", "http")],
+        "",
+    )
+    .await;
+    let flow_tok = flow_json
+        .split("/index.php/login/v2/flow/")
+        .nth(1)
+        .unwrap()
+        .split('"')
+        .next()
+        .unwrap();
+    let flow_html = call(app, "GET", &format!("/index.php/login/v2/flow/{flow_tok}"), &c, "")
+        .await
+        .2;
+    assert!(
+        flow_html.contains("name=\"csrf\""),
+        "the Login Flow consent page itself is audited"
+    );
+    pages.push(("/index.php/login/v2/flow/{token}".into(), flow_html));
     // Activation pages: an account with a password (asked again); one without (to choose); on a tenant that requires
     // two-step verification, the phone, then the recovery codes; and the page a session is held on there.
     let alpha = e.state.registry.by_name("alpha").unwrap();

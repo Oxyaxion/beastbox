@@ -6,11 +6,14 @@
       <li>{{ lang.t("Scan this code, or type this key:") }} <code class="cle-totp">{{ twofa.secret }}</code></li>
       <li>{{ lang.t("Enter the 6-digit code the app shows.") }}</li>
     </ol>
-    <form method="post" action="{{ twofa.action }}" class="ligne">
+    <form method="post" action="{{ twofa.action }}" class="champs">
       <input type="hidden" name="csrf" value="{{ twofa.csrf }}">
-      <label class="champ" for="code-totp">{{ lang.t("Code") }}
-        <input id="code-totp" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></label>
-      <button type="submit" class="principal">{{ lang.t("Confirm") }}</button>
+      {% if twofa.ask_password %}<div class="champ"><label for="tf-setup-pw">{{ lang.t("Your password") }}</label>
+        <input id="tf-setup-pw" name="password" type="password" autocomplete="current-password" required></div>
+      {% else %}<p class="aide">{{ lang.t("You may be asked to sign in again first.") }}</p>{% endif %}
+      <div class="champ"><label for="code-totp">{{ lang.t("Code") }}</label>
+        <input id="code-totp" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
+      <div class="envoi"><button type="submit" class="principal">{{ lang.t("Confirm") }}</button></div>
     </form>
   </div>
 </div>

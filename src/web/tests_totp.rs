@@ -113,6 +113,28 @@ async fn account_turns_it_on() {
     );
     assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
     let st = totp::step(totp::now());
+    let right = format!("{:06}", totp::hotp(&secret, st));
+    // AUTH-03: turning TOTP on asks the password again (a stolen session alone cannot lock out the owner).
+    for pw in ["", "&password=", "&password=faux"] {
+        let (s, _, page) = call(
+            &e.app,
+            "POST",
+            "/web/account/2fa/confirm",
+            &c,
+            &format!("csrf={csrf}&code={right}{pw}"),
+        )
+        .await;
+        assert!(
+            s == StatusCode::UNAUTHORIZED && page.contains("Wrong password") && page.contains(&key),
+            "{pw}: {page}"
+        );
+    }
+    assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
+    assert_eq!(
+        status(&e.app, "GET", "/web/files/", &[A, ("cookie", other.as_str())]).await,
+        StatusCode::OK,
+        "other session kept while reproof fails"
+    );
     let wrong = format!("{:06}", (totp::hotp(&secret, st) + 1) % 1_000_000);
     for bad in [wrong.as_str(), "", "12345", "abcdef"] {
         let (s, _, page) = call(
@@ -120,7 +142,7 @@ async fn account_turns_it_on() {
             "POST",
             "/web/account/2fa/confirm",
             &c,
-            &format!("csrf={csrf}&code={bad}"),
+            &format!("csrf={csrf}&password=pw-alice&code={bad}"),
         )
         .await;
         assert!(
@@ -129,13 +151,12 @@ async fn account_turns_it_on() {
         );
     }
     assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
-    let right = format!("{:06}", totp::hotp(&secret, st));
     let (s, h, page) = call(
         &e.app,
         "POST",
         "/web/account/2fa/confirm",
         &c,
-        &format!("csrf={csrf}&code={right}"),
+        &format!("csrf={csrf}&password=pw-alice&code={right}"),
     )
     .await;
     assert!(
@@ -694,22 +715,35 @@ async fn login_flow_goes_through_the_login() {
     );
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
     // Full session (code given): the password is asked again; one device; a second flow gives a second device.
-    let (cookie, _) = login2(&e, A, "pw-alice", &code_at(0)).await;
+    let (cookie, csrf) = login2(&e, A, "pw-alice", &code_at(0)).await;
     let c = [A, ("cookie", cookie.as_str())];
     let (s, _, page) = call(&e.app, "GET", &f, &c, "").await;
     assert_eq!(s, StatusCode::OK);
     assert!(
-        page.contains("Authorize this client") && page.contains("name=\"password\""),
+        page.contains("Authorize this client")
+            && page.contains(&format!("name=\"csrf\" value=\"{csrf}\""))
+            && page.contains("name=\"password\""),
         "{page}"
     );
-    assert_eq!(call(&e.app, "POST", &f, &c, "").await.0, StatusCode::UNAUTHORIZED);
     assert_eq!(
         call(&e.app, "POST", &f, &c, "password=pw-alice").await.0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        call(&e.app, "POST", &f, &c, &format!("csrf={csrf}")).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&e.app, "POST", &f, &c, &format!("csrf={csrf}&password=pw-alice"))
+            .await
+            .0,
         StatusCode::OK
     );
     let g = flow().await;
     assert_eq!(
-        call(&e.app, "POST", &g, &c, "password=pw-alice").await.0,
+        call(&e.app, "POST", &g, &c, &format!("csrf={csrf}&password=pw-alice"))
+            .await
+            .0,
         StatusCode::OK
     );
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 2);

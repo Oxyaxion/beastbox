@@ -922,7 +922,7 @@ async fn oidc_with_totp_defers_to_the_code_page() {
     let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
     let o = oidc_runtime(port, &ca, SecondFactor::Beastbox, vec![]);
     let (e, alpha) = env_oidc(o);
-    e.state.db.totp_enable(&alpha, "bob", &[7; 32], 0, &[]).unwrap();
+    e.state.db.totp_enable(&alpha, "bob", &[7; 32], 0, &[], None).unwrap();
     // next=/web/account: after the code, the browser goes there.
     let (_s, _h, st) = start(&e, "/web/account").await;
     let p = authorize(&ca, &st).await;
@@ -950,7 +950,7 @@ async fn oidc_provider_second_factor_skips_the_totp_page() {
     let (port, ca, m) = spawn_mock(d.path(), vec!["mfa".into()]).await;
     let o = oidc_runtime(port, &ca, SecondFactor::Provider, vec!["mfa".into()]);
     let (e, alpha) = env_oidc(o);
-    e.state.db.totp_enable(&alpha, "bob", &[7; 32], 0, &[]).unwrap();
+    e.state.db.totp_enable(&alpha, "bob", &[7; 32], 0, &[], None).unwrap();
     let (_s, _h, st) = start(&e, "").await;
     let p = authorize(&ca, &st).await;
     let (s, h, _) = callback(&e, &st.flow, &format!("code=test-code&state={}", p["state"])).await;
@@ -1378,30 +1378,104 @@ async fn sso_account_login_flow_proof() {
     let (port, ca, _m) = spawn_mock(d.path(), vec![]).await;
     let o = oidc_runtime(port, &ca, SecondFactor::Provider, vec![]);
     let (e, alpha) = env_oidc(o);
-    let (cookie, _) = bob_signs_in(&e, &ca).await;
+    let (cookie, csrf) = bob_signs_in(&e, &ca).await;
     let c = [A, ("cookie", cookie.as_str())];
     let f = new_login_flow(&e).await;
     let (_, _, page) = call(&e.app, "GET", &f, &c, "").await;
     assert!(
         page.contains("Authorize this client")
+            && page.contains(&format!("name=\"csrf\" value=\"{csrf}\""))
             && !page.contains("name=\"password\"")
             && !page.contains("name=\"code\"")
     );
-    assert_eq!(call(&e.app, "POST", &f, &c, "").await.0, StatusCode::OK);
+    // AUTH-01: forged POST (missing/wrong CSRF or same-site/cross-site origin) never issues an app password.
+    for body in ["", "csrf=wrong"] {
+        assert_eq!(
+            call(&e.app, "POST", &f, &c, body).await.0,
+            StatusCode::FORBIDDEN,
+            "{body}"
+        );
+    }
+    for hdr in [
+        ("sec-fetch-site", "same-site"),
+        ("sec-fetch-site", "cross-site"),
+        ("origin", "https://other.alpha.example"),
+    ] {
+        let h = [A, ("cookie", cookie.as_str()), hdr];
+        assert_eq!(
+            call(&e.app, "POST", &f, &h, &format!("csrf={csrf}")).await.0,
+            StatusCode::FORBIDDEN,
+            "{hdr:?}"
+        );
+    }
+    assert!(e.state.db.token_list(&alpha, "bob").unwrap().is_empty());
+    assert_eq!(
+        call(&e.app, "POST", &f, &c, &format!("csrf={csrf}")).await.0,
+        StatusCode::OK
+    );
     assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
     e.state.db.exec_for_test(&format!(
         "UPDATE session SET created_at = created_at - {} WHERE user_id = 'bob';",
         crate::web::FRESH_SIGN_IN + 1
     ));
     let g = new_login_flow(&e).await;
-    let (s, h, _) = call(&e.app, "POST", &g, &c, "").await;
+    // Forged POST without CSRF on a stale SSO session must not log bob out either.
+    assert_eq!(call(&e.app, "POST", &g, &c, "").await.0, StatusCode::FORBIDDEN);
+    assert_eq!(call(&e.app, "GET", "/web/account", &c, "").await.0, StatusCode::OK);
+    let (s, h, _) = call(&e.app, "POST", &g, &c, &format!("csrf={csrf}")).await;
     assert_eq!(
         (s, h["location"].to_str().unwrap()),
         (StatusCode::SEE_OTHER, format!("/login?next={g}").as_str())
     );
     assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
-    // With two-step verification: the code is asked.
-    auth::tests::enable_totp(&e.state.db, &alpha, "bob");
+    // AUTH-03: SSO account turning ON TOTP on an optional tenant needs a fresh sign-in.
+    let (cookie, csrf) = bob_signs_in(&e, &ca).await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let (s, _, page) = call(&e.app, "POST", "/web/account/2fa/start", &c, &format!("csrf={csrf}")).await;
+    assert!(s == StatusCode::OK && !page.contains("id=\"tf-setup-pw\""), "{page}");
+    let secret = crate::auth::totp::setup_secret(&alpha, cookie.split_once('=').unwrap().1);
+    let code = format!(
+        "{:06}",
+        crate::auth::totp::hotp(&secret, crate::auth::totp::step(crate::auth::totp::now()))
+    );
+    e.state.db.exec_for_test(&format!(
+        "UPDATE session SET created_at = created_at - {} WHERE user_id = 'bob';",
+        crate::web::FRESH_SIGN_IN + 1
+    ));
+    let (s, h, _) = call(
+        &e.app,
+        "POST",
+        "/web/account/2fa/confirm",
+        &c,
+        &format!("csrf={csrf}&code={code}"),
+    )
+    .await;
+    assert_eq!(
+        (s, h["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/login?next=/web/account")
+    );
+    assert_eq!(e.state.db.totp_get(&alpha, "bob").unwrap(), Some((None, 0)));
+    // Fresh sign-in: TOTP setup succeeds.
+    let (cookie, csrf) = bob_signs_in(&e, &ca).await;
+    let c = [A, ("cookie", cookie.as_str())];
+    let secret = crate::auth::totp::setup_secret(&alpha, cookie.split_once('=').unwrap().1);
+    let code = format!(
+        "{:06}",
+        crate::auth::totp::hotp(&secret, crate::auth::totp::step(crate::auth::totp::now()))
+    );
+    assert_eq!(
+        call(
+            &e.app,
+            "POST",
+            "/web/account/2fa/confirm",
+            &c,
+            &format!("csrf={csrf}&code={code}")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    // With two-step verification: the code is asked on Login Flow.
     let (cookie, _) = bob_signs_in(&e, &ca).await;
     let (_, _, page) = call(&e.app, "GET", &g, &[A, ("cookie", cookie.as_str())], "").await;
     assert!(

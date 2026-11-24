@@ -1122,8 +1122,17 @@ impl Db {
     }
 
     /// Turns two-step verification on (or replaces it): sealed secret, step just used, recovery code digests (the old
-    /// ones are dropped), in one transaction. `false`: unknown account.
-    pub fn totp_enable(&self, t: &TenantCtx, user: &str, sealed: &[u8], last: u64, codes: &[[u8; 32]]) -> Result<bool> {
+    /// ones are dropped), and optionally ends the account's other web sessions (`keep`), in one transaction. `false`:
+    /// unknown account.
+    pub fn totp_enable(
+        &self,
+        t: &TenantCtx,
+        user: &str,
+        sealed: &[u8],
+        last: u64,
+        codes: &[[u8; 32]],
+        keep: Option<&[u8; 32]>,
+    ) -> Result<bool> {
         let c = self.conn()?;
         let tx = c.unchecked_transaction()?;
         let last = i64::try_from(last).unwrap_or(i64::MAX);
@@ -1131,6 +1140,9 @@ impl Db {
         tx.execute(Q_RECOVERY_DEL_ALL, params![t.name(), user])?;
         for m in codes {
             tx.execute(Q_RECOVERY_ADD, params![t.name(), user, &m[..]])?;
+        }
+        if found && let Some(k) = keep {
+            tx.execute(Q_SESSION_DEL_OTHERS, params![t.name(), user, &k[..]])?;
         }
         tx.commit()?;
         Ok(found)
@@ -1952,7 +1964,8 @@ mod tests {
         for (t, u) in [(&a, "alice"), (&a, "bob"), (&b, "alice")] {
             db.user_add(t, u, "h", false).unwrap();
         }
-        db.totp_enable(&a, "alice", &[7; 32], 5, &[[9; 32], [8; 32]]).unwrap();
+        db.totp_enable(&a, "alice", &[7; 32], 5, &[[9; 32], [8; 32]], None)
+            .unwrap();
         let mac = |i: u8| [i; 32];
         for (t, u, i) in [(&a, "alice", 1), (&a, "bob", 2), (&b, "alice", 3)] {
             db.session_add(t, u, &mac(i), 600).unwrap();
@@ -2238,7 +2251,7 @@ mod tests {
         let a = reg.by_name("alpha").unwrap();
         db.user_add(&a, "alice", "h", false).unwrap();
         db.user_add(&a, "bob", "h", false).unwrap();
-        assert!(db.totp_enable(&a, "bob", b"sealed", 1, &[]).unwrap());
+        assert!(db.totp_enable(&a, "bob", b"sealed", 1, &[], None).unwrap());
         assert!(db.user_set_active(&a, "bob", false).unwrap());
         let l: Vec<_> = db
             .user_list(&a, 10)
@@ -2261,7 +2274,7 @@ mod tests {
         let (a, b) = (reg.by_name("alpha").unwrap(), reg.by_name("beta").unwrap());
         for (t, u) in [(&a, "alice"), (&a, "bob"), (&b, "alice")] {
             db.user_add(t, u, "h", false).unwrap();
-            assert!(db.totp_enable(t, u, b"sealed", 10, &[]).unwrap());
+            assert!(db.totp_enable(t, u, b"sealed", 10, &[], None).unwrap());
         }
         assert!(!db.totp_use(&a, "alice", 10).unwrap()); // at the last step
         assert!(!db.totp_use(&a, "alice", 9).unwrap()); // below
@@ -2272,6 +2285,23 @@ mod tests {
         db.totp_disable(&a, "alice").unwrap();
         assert!(!db.totp_use(&a, "alice", 50).unwrap()); // off
         assert!(!db.totp_use(&a, "carol", 50).unwrap()); // unknown
+        // Atomic session revocation on totp_enable: keeps `keep`, ends alice's other session, leaves bob and beta alone.
+        for (t, u, m) in [
+            (&a, "alice", [1u8; 32]),
+            (&a, "alice", [2u8; 32]),
+            (&a, "bob", [3u8; 32]),
+            (&b, "alice", [4u8; 32]),
+        ] {
+            db.session_add(t, u, &m, 600).unwrap();
+        }
+        assert!(
+            db.totp_enable(&a, "alice", b"sealed", 1, &[], Some(&[1u8; 32]))
+                .unwrap()
+        );
+        assert!(db.session_user(&a, &[1u8; 32]).unwrap().is_some());
+        assert!(db.session_user(&a, &[2u8; 32]).unwrap().is_none());
+        assert!(db.session_user(&a, &[3u8; 32]).unwrap().is_some());
+        assert!(db.session_user(&b, &[4u8; 32]).unwrap().is_some());
     }
 
     #[test]

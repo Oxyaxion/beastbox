@@ -532,8 +532,8 @@ pub(crate) enum Unproven {
     Busy,
 }
 
-/// Checks the `Reproof` of `w` against the form `body` (`now`: Unix time). Failures count like a sign-in's: per IP, and
-/// per account for a code.
+/// Checks the `Reproof` of `w` against the form `body` (`now`: Unix time). Failures count like a sign-in's: per IP,
+/// and per account (password or code).
 pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u8], now: i64) -> Result<(), Unproven> {
     let t = w.u.tenant().clone();
     let kind = w.reproof();
@@ -544,12 +544,15 @@ pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u
             Err(Unproven::Stale)
         };
     }
+    if t.failures().ip_blocked(ip.0)
+        || (kind == Reproof::Password && t.failures().account_blocked(w.u.user()))
+        || (kind == Reproof::Code && t.failures().code_blocked(w.u.user()))
+    {
+        return Err(Unproven::TooMany);
+    }
     let Some(given) = form_field(body, kind.field()).filter(|g| !g.is_empty()) else {
         return Err(Unproven::Wrong);
     };
-    if t.failures().ip_blocked(ip.0) || (kind == Reproof::Code && t.failures().code_blocked(w.u.user())) {
-        return Err(Unproven::TooMany);
-    }
     let _permit = match kind {
         Reproof::Password => match tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await {
             Ok(Ok(p)) => Some(p),
@@ -571,8 +574,10 @@ pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u
         Ok(Ok(false)) => {
             tracing::warn!(tenant = t.name(), ip = %ip.0, user = w.u.user(), "proof asked again: wrong");
             t.failures().record_ip(ip.0);
-            if kind == Reproof::Code {
-                t.failures().record_code(w.u.user());
+            match kind {
+                Reproof::Password => t.failures().record_account(w.u.user()),
+                Reproof::Code => t.failures().record_code(w.u.user()),
+                Reproof::FreshSignIn => {}
             }
             Err(Unproven::Wrong)
         }
@@ -840,6 +845,8 @@ async fn login(
             t.failures().record_ip(ip.0);
             if exists {
                 t.failures().record_account(&user);
+            } else {
+                t.failures().record_unknown_account(&user);
             }
             html(
                 StatusCode::UNAUTHORIZED,
@@ -4096,9 +4103,9 @@ async fn account_password(
     }
 }
 
-/// The user replaces their password, giving the current one (account page, `/web/welcome`): failures limited per IP,
-/// argon2id bounded, rules of `admin::weakness`. Success ends the account's web sessions, this one included.
-/// `Err`: a response to send as is (too many failures, server busy).
+/// The user replaces their password, giving the current one (account page, `/web/welcome`): failures limited per IP
+/// and per account, argon2id bounded, rules of `admin::weakness`. Success ends the account's web sessions, this one
+/// included. `Err`: a response to send as is (too many failures, server busy).
 async fn change_password(
     app: &Arc<App>,
     t: &TenantCtx,
@@ -4107,7 +4114,7 @@ async fn change_password(
     cur: String,
     new: String,
 ) -> Result<(StatusCode, &'static str), Response> {
-    if t.failures().ip_blocked(ip.0) {
+    if t.failures().ip_blocked(ip.0) || t.failures().account_blocked(w.u.user()) {
         return Err(too_many());
     }
     let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await else {
@@ -4129,6 +4136,7 @@ async fn change_password(
         }
         Ok(Ok(None)) => {
             t.failures().record_ip(ip.0);
+            t.failures().record_account(w.u.user());
             (StatusCode::UNAUTHORIZED, "Wrong current password: nothing was changed.")
         }
         Ok(Ok(Some(Err(weak)))) => (StatusCode::BAD_REQUEST, weak.message()),
@@ -4207,14 +4215,9 @@ async fn totp_setup_confirm(
     let (app2, u) = (app.clone(), w.u.clone());
     let now = totp::now();
     let keep = t.mac(w.secret.as_bytes());
-    // Turned on: the account's other web sessions end (one opened with a stolen password must not outlive it).
-    let r = blocking(move || -> crate::Result<Option<Vec<String>>> {
-        let codes = auth::totp_enable(&app2.db, u.tenant(), u.user(), &secret, &code, now)?;
-        if codes.is_some() {
-            app2.db.session_delete_others(u.tenant(), u.user(), &keep)?;
-        }
-        Ok(codes)
-    });
+    // Turned on: the account's other web sessions end in the same transaction (one opened with a stolen password must
+    // not outlive it).
+    let r = blocking(move || auth::totp_enable(&app2.db, u.tenant(), u.user(), &secret, &code, now, Some(&keep)));
     match r.await {
         Ok(Ok(Some(codes))) => {
             tracing::info!(tenant = t.name(), user = w.u.user(), "two-step verification on");
@@ -4228,7 +4231,8 @@ async fn totp_setup_confirm(
     }
 }
 
-/// `POST /web/account/2fa/confirm`: the code from the app turns it on.
+/// `POST /web/account/2fa/confirm`: the `Reproof` (password, or recent sign-in for single sign-on) and the code from
+/// the app turn it on — a stolen session alone cannot bind an attacker's phone and lock out the owner.
 async fn totp_confirm(
     State(app): State<Arc<App>>,
     Extension(t): Extension<TenantCtx>,
@@ -4248,6 +4252,23 @@ async fn totp_confirm(
     if w.totp {
         let n = Notice::TwoFa(StatusCode::CONFLICT, "Two-step verification is already on.");
         return account(&app, &w, lang, n, Default::default()).await;
+    }
+    match reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+        Ok(()) => {}
+        Err(Unproven::Wrong) => {
+            let n = Notice::TwoFa(StatusCode::UNAUTHORIZED, "Wrong password: nothing was changed.");
+            let setup = totp_qr(lang, &origin, w.u.user(), &totp::setup_secret(&t, &w.secret));
+            let tf = TwoFaExtra {
+                setup: Some(setup),
+                ..Default::default()
+            };
+            return account_tf(&app, &w, lang, n, Default::default(), tf).await;
+        }
+        Err(Unproven::TooMany) => return too_many(),
+        Err(Unproven::Stale) => return sign_in_again(&app, &w, "/web/account").await,
+        Err(Unproven::Busy) => {
+            return (StatusCode::SERVICE_UNAVAILABLE, [(header::RETRY_AFTER, "5")]).into_response();
+        }
     }
     match totp_setup_confirm(&app, &t, ip, &w, &body).await {
         Ok(Some(codes)) => {
@@ -4318,7 +4339,10 @@ async fn totp_manage(
         );
         return account(&app, &w, lang, n, Default::default()).await;
     }
-    if t.failures().ip_blocked(ip.0) || t.failures().code_blocked(w.u.user()) {
+    if t.failures().ip_blocked(ip.0)
+        || t.failures().code_blocked(w.u.user())
+        || (w.has_password && t.failures().account_blocked(w.u.user()))
+    {
         return too_many();
     }
     let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await else {
@@ -4360,6 +4384,7 @@ async fn totp_manage(
         }
         Ok(Ok(Err(Proof::Password))) => {
             t.failures().record_ip(ip.0);
+            t.failures().record_account(w.u.user());
             let n = notice(StatusCode::UNAUTHORIZED, "Wrong password: nothing was changed.");
             account(&app, &w, lang, n, Default::default()).await
         }

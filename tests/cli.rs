@@ -409,7 +409,9 @@ fn user_list_columns() {
     let s = [7u8; auth::totp::SECRET_LEN];
     let now = auth::totp::now();
     let code = format!("{:06}", auth::totp::hotp(&s, auth::totp::step(now)));
-    auth::totp_enable(&db, &t, "bob", &s, &code, now).unwrap().unwrap();
+    auth::totp_enable(&db, &t, "bob", &s, &code, now, None)
+        .unwrap()
+        .unwrap();
     db.user_set_active(&t, "alice", false).unwrap();
     assert_eq!(list(&b, "alpha"), "alice\tadmin\tdisabled\t-\nbob\tuser\tactive\t2fa\n");
 }
@@ -461,7 +463,9 @@ fn user_2fa_reset() {
     let code = format!("{:06}", auth::totp::hotp(&s, auth::totp::step(now)));
     for tenant in ["alpha", "beta"] {
         let (db, t) = b.tenant(tenant);
-        auth::totp_enable(&db, &t, "alice", &s, &code, now).unwrap().unwrap();
+        auth::totp_enable(&db, &t, "alice", &s, &code, now, None)
+            .unwrap()
+            .unwrap();
     }
     let (db, t) = b.tenant("alpha");
     db.session_add(&t, "alice", &[2; 32], 60).unwrap();

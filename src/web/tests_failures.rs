@@ -166,7 +166,7 @@ async fn second_step_when_the_database_refuses() {
     let secret = totp::setup_secret(&t, cookie.split_once('=').unwrap().1);
     let code = format!("{:06}", totp::hotp(&secret, totp::step(totp::now())));
     refuse(&e, "UPDATE", "user");
-    let body = format!("csrf={csrf}&code={code}");
+    let body = format!("csrf={csrf}&password=pw-alice&code={code}");
     assert_eq!(
         call(&e.app, "POST", "/web/account/2fa/confirm", &c, &body).await.0,
         BUSY
@@ -460,15 +460,13 @@ async fn login_flow_refusals() {
         StatusCode::SEE_OTHER
     );
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
-    let (cookie, _) = login(&e, A, "pw-alice").await;
+    let (cookie, csrf) = login(&e, A, "pw-alice").await;
     let c = [A, proto, ("cookie", cookie.as_str())];
+    let body = format!("csrf={csrf}&password=pw-alice");
     refuse(&e, "INSERT", "app_token");
-    assert_eq!(call(&e.app, "POST", &form, &c, "password=pw-alice").await.0, BUSY);
+    assert_eq!(call(&e.app, "POST", &form, &c, &body).await.0, BUSY);
     allow(&e, "INSERT", "app_token");
     assert!(e.state.db.token_list(&t, "alice").unwrap().is_empty());
-    assert_eq!(
-        call(&e.app, "POST", &form, &c, "password=pw-alice").await.0,
-        StatusCode::OK
-    );
+    assert_eq!(call(&e.app, "POST", &form, &c, &body).await.0, StatusCode::OK);
     assert_eq!(e.state.db.token_list(&t, "alice").unwrap().len(), 1);
 }

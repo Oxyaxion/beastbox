@@ -109,8 +109,11 @@ impl Named {
 #[derive(Debug, Default)]
 pub struct Failures {
     by_ip: Mutex<HashMap<IpAddr, (u32, Instant)>>,
-    /// Wrong passwords per existing account.
+    /// Wrong passwords per existing account (never filled by unknown names).
     by_account: Named,
+    /// Wrong passwords per unknown valid-syntax account name: mirrors `by_account`'s lockout so 429 vs 401 is not
+    /// an account existence oracle, while evicting instead of failing closed so fake names cannot lock real accounts.
+    by_unknown: Mutex<HashMap<String, (u32, Instant)>>,
     /// Wrong second steps per account.
     code_by_user: Named,
     /// Wrong passwords per share link (its identifier), with the per-IP limits.
@@ -159,17 +162,30 @@ impl Failures {
         e.0 += 1;
     }
 
-    /// Has this account exhausted its password attempts (all addresses combined)?
+    /// Has this account exhausted its password attempts (all addresses combined)? Covers unknown valid-syntax names
+    /// too so 429 vs 401 does not reveal whether an account exists.
     pub fn account_blocked(&self, user: &str) -> bool {
         self.account_blocked_at(user, Instant::now())
     }
 
     fn account_blocked_at(&self, user: &str, now: Instant) -> bool {
-        self.by_account.blocked_at(user, now, ACCOUNT_MAX_FAILS, ACCOUNT_WINDOW)
+        self.by_account.blocked_at(user, now, ACCOUNT_MAX_FAILS, ACCOUNT_WINDOW) || self.unknown_blocked_at(user, now)
     }
 
-    /// Counts a wrong password for an **existing** account (only real names: the table cannot be filled with made-up
-    /// ones).
+    fn unknown_blocked_at(&self, user: &str, now: Instant) -> bool {
+        let Ok(mut m) = self.by_unknown.lock() else { return true };
+        match m.get(user) {
+            Some(&(n, t)) if now.duration_since(t) < ACCOUNT_WINDOW => n >= ACCOUNT_MAX_FAILS,
+            Some(_) => {
+                m.remove(user);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Counts a wrong password for an **existing** account (kept separate from unknown names so made-up names cannot
+    /// fill or evict real lockouts).
     pub fn record_account(&self, user: &str) {
         self.record_account_at(user, Instant::now());
     }
@@ -181,6 +197,35 @@ impl Failures {
                 "password: too many failures for this account, locked for 15 minutes"
             );
         }
+    }
+
+    /// Counts a wrong password for an unknown (or disabled / passwordless) valid-syntax account name: bounded and
+    /// evicts unblocked entries first, so it prevents the 429 vs 401 existence oracle without allowing a tenant lockout.
+    pub fn record_unknown_account(&self, user: &str) {
+        self.record_unknown_account_at(user, Instant::now());
+    }
+
+    fn record_unknown_account_at(&self, user: &str, now: Instant) {
+        if !crate::admin::valid_username(user) {
+            return;
+        }
+        let Ok(mut m) = self.by_unknown.lock() else { return };
+        if m.len() >= IP_MAX_ENTRIES && !m.contains_key(user) {
+            m.retain(|_, (_, t)| now.duration_since(*t) < ACCOUNT_WINDOW);
+            if m.len() >= IP_MAX_ENTRIES
+                && let Some(victim) = m
+                    .iter()
+                    .min_by_key(|(_, (n, t))| (*n >= ACCOUNT_MAX_FAILS, *t))
+                    .map(|(k, _)| k.clone())
+            {
+                m.remove(&victim);
+            }
+        }
+        let e = m.entry(user.to_owned()).or_insert((0, now));
+        if now.duration_since(e.1) >= ACCOUNT_WINDOW {
+            *e = (0, now);
+        }
+        e.0 += 1;
     }
 
     /// Has the account exhausted its second-step attempts? Poisoned lock or full table → yes (fail closed).
@@ -426,7 +471,8 @@ pub fn verify_second(db: &Db, t: &TenantCtx, user: &str, input: &str, now: u64) 
 }
 
 /// Confirms the setup of two-step verification with a code from `secret` (the one shown in the QR code); on success
-/// stores it sealed and returns the recovery codes to show once. `None`: wrong code, nothing stored. Blocking.
+/// stores it sealed, ends the account's other sessions when `keep` is given, and returns the recovery codes to show
+/// once — all in one transaction. `None`: wrong code, nothing stored. Blocking.
 pub fn totp_enable(
     db: &Db,
     t: &TenantCtx,
@@ -434,6 +480,7 @@ pub fn totp_enable(
     secret: &[u8; totp::SECRET_LEN],
     input: &str,
     now: u64,
+    keep: Option<&[u8; 32]>,
 ) -> Result<Option<Vec<String>>> {
     let Some(st) = totp::parse_code(input).and_then(|c| totp::check(secret, c, totp::step(now), 0)) else {
         return Ok(None);
@@ -444,7 +491,7 @@ pub fn totp_enable(
         .filter_map(|c| totp::parse_recovery(c))
         .map(|c| totp::recovery_mac(t, user, &c))
         .collect();
-    if !db.totp_enable(t, user, &totp::seal(t, user, secret)?, st, &macs)? {
+    if !db.totp_enable(t, user, &totp::seal(t, user, secret)?, st, &macs, keep)? {
         return Err(Error::Invalid(format!("unknown account in {}: {user}", t.name())));
     }
     Ok(Some(codes))
@@ -1074,7 +1121,7 @@ pub(crate) mod tests {
         let s = [7u8; totp::SECRET_LEN];
         let now = totp::now();
         let code = format!("{:06}", totp::hotp(&s, totp::step(now) - 1));
-        totp_enable(db, t, user, &s, &code, now).unwrap().unwrap()
+        totp_enable(db, t, user, &s, &code, now, None).unwrap().unwrap()
     }
 
     /// The code of `[7; 20]` at the current step + `k`.
@@ -1095,8 +1142,8 @@ pub(crate) mod tests {
         let s = [7u8; totp::SECRET_LEN];
         let now = totp::now();
         let wrong = format!("{:06}", (totp::hotp(&s, totp::step(now)) + 1) % 1_000_000);
-        assert_eq!(totp_enable(&db, &a, "alice", &s, &wrong, now).unwrap(), None);
-        assert_eq!(totp_enable(&db, &a, "alice", &s, "abc", now).unwrap(), None);
+        assert_eq!(totp_enable(&db, &a, "alice", &s, &wrong, now, None).unwrap(), None);
+        assert_eq!(totp_enable(&db, &a, "alice", &s, "abc", now, None).unwrap(), None);
         assert_eq!(db.totp_get(&a, "alice").unwrap(), Some((None, 0)));
         let codes = enable_totp(&db, &a, "alice");
         let now = totp::now(); // enable_totp may wait for a fresh time step
@@ -1114,7 +1161,7 @@ pub(crate) mod tests {
             assert_eq!(db.recovery_count(t, u).unwrap(), 0);
             assert_eq!(verify_second(&db, t, u, &code_at(0), now).unwrap(), Second::Wrong);
         }
-        assert!(totp_enable(&db, &a, "carol", &s, &code_at(0), now).is_err()); // unknown account
+        assert!(totp_enable(&db, &a, "carol", &s, &code_at(0), now, None).is_err()); // unknown account
     }
 
     /// Second step: each TOTP step once, each recovery code once; another user's or tenant's codes never work; a
@@ -1211,7 +1258,7 @@ pub(crate) mod tests {
                 let code = |k: i8| format!("{:06}", totp::hotp(&s, st.checked_add_signed(i64::from(k)).unwrap()));
                 match op {
                     Op::Enable(k) => {
-                        let r = totp_enable(&db, &a, "alice", &s, &code(k), now).unwrap();
+                        let r = totp_enable(&db, &a, "alice", &s, &code(k), now, None).unwrap();
                         // The window only (no step used yet); a code two steps away may collide with one inside.
                         let expect = totp::check(&s, totp::hotp(&s, st.checked_add_signed(i64::from(k)).unwrap()), st, 0);
                         prop_assert_eq!(r.is_some(), expect.is_some());
@@ -1274,5 +1321,74 @@ pub(crate) mod tests {
         assert!(verify_human(&db, &a, "alice", "nope", &dummy).unwrap().is_none());
         assert!(verify_human(&db, &a, "ghost", "pw-alice", &dummy).unwrap().is_none());
         assert!(verify_human(&db, &a, "../x", "pw-alice", &dummy).unwrap().is_none());
+    }
+
+    /// AUTH-02: unknown valid-syntax usernames mirror `by_account`'s 10/15-min lockout (so 429 vs 401 is not an
+    /// existence oracle), stay strictly bounded, evict unblocked entries before blocked ones, and never lock out or
+    /// evict real accounts.
+    #[test]
+    fn unknown_account_failures_are_bounded_and_mirror_lockout() {
+        let f = Failures::default();
+        let t0 = Instant::now();
+        // Below, at, and expired boundary for an unknown valid-syntax name.
+        for _ in 0..ACCOUNT_MAX_FAILS - 1 {
+            f.record_unknown_account_at("ghost", t0);
+            assert!(!f.account_blocked_at("ghost", t0));
+        }
+        f.record_unknown_account_at("ghost", t0);
+        assert!(f.account_blocked_at("ghost", t0));
+        assert!(f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW - Duration::from_millis(1)));
+        assert!(!f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW));
+        // Restarting after expiry counts from 1 again.
+        f.record_unknown_account_at("ghost", t0 + ACCOUNT_WINDOW);
+        assert!(!f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW));
+        // Invalid syntax is never stored.
+        for _ in 0..ACCOUNT_MAX_FAILS {
+            f.record_unknown_account_at("../bad", t0);
+        }
+        assert!(!f.account_blocked_at("../bad", t0));
+        // Eviction prefers unblocked noise over blocked ghosts, and never affects real accounts.
+        let g = Failures::default();
+        for _ in 0..ACCOUNT_MAX_FAILS {
+            g.record_account_at("alice", t0);
+            g.record_unknown_account_at("ghost", t0);
+        }
+        for i in 0..IP_MAX_ENTRIES + 64 {
+            g.record_unknown_account_at(&format!("noise-{i}"), t0 + Duration::from_secs(1));
+        }
+        assert_eq!(g.by_unknown.lock().unwrap().len(), IP_MAX_ENTRIES);
+        assert!(g.account_blocked_at("ghost", t0 + Duration::from_secs(2)));
+        assert!(g.account_blocked_at("alice", t0 + Duration::from_secs(2)));
+        assert!(!g.account_blocked_at("bob", t0 + Duration::from_secs(2)));
+        // Once all entries expire, recording reclaims them cleanly.
+        g.record_unknown_account_at("fresh", t0 + ACCOUNT_WINDOW + Duration::from_secs(2));
+        assert_eq!(g.by_unknown.lock().unwrap().len(), 1);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
+        /// Any sequence of unknown-account failures never grows `by_unknown` past `IP_MAX_ENTRIES` and never locks
+        /// an unrelated real account.
+        #[test]
+        fn unknown_failures_never_lock_unrelated_accounts(
+            names in proptest::collection::vec("[a-z0-9]{1,12}", 1..80),
+            repeat in 1u32..12
+        ) {
+            let f = Failures::default();
+            let t0 = Instant::now();
+            for n in &names {
+                if n == "real-owner" {
+                    continue;
+                }
+                for _ in 0..repeat {
+                    f.record_unknown_account_at(n, t0);
+                }
+            }
+            proptest::prop_assert!(f.by_unknown.lock().unwrap().len() <= IP_MAX_ENTRIES);
+            proptest::prop_assert!(!f.account_blocked_at("real-owner", t0));
+            if let Some(last) = names.iter().rev().find(|n| *n != "real-owner") {
+                proptest::prop_assert_eq!(f.account_blocked_at(last, t0), repeat >= ACCOUNT_MAX_FAILS);
+            }
+        }
     }
 }
