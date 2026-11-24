@@ -352,7 +352,7 @@ async fn security_headers(req: Request, next: Next) -> Response {
     let mut res = next.run(req).await;
     let h = res.headers_mut();
     h.insert(header::X_CONTENT_TYPE_OPTIONS, HeaderValue::from_static("nosniff"));
-    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("no-referrer"));
+    h.insert(header::REFERRER_POLICY, HeaderValue::from_static("same-origin"));
     h.insert(header::VARY, HeaderValue::from_static("Host"));
     res
 }

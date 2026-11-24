@@ -174,6 +174,21 @@ async fn second_step_when_the_database_refuses() {
     allow(&e, "UPDATE", "user");
     assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
 
+    // AUTH-03 atomicity: if revoking other sessions fails inside the transaction, TOTP stays off and the other session
+    // survives (no half-applied enrollment).
+    let (other, _) = login(&e, A, "pw-alice").await;
+    refuse(&e, "DELETE", "session");
+    assert_eq!(
+        call(&e.app, "POST", "/web/account/2fa/confirm", &c, &body).await.0,
+        BUSY
+    );
+    allow(&e, "DELETE", "session");
+    assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
+    assert_eq!(
+        status(&e.app, "GET", "/web/account", &[A, ("cookie", other.as_str())]).await,
+        StatusCode::OK
+    );
+
     // Renewing the recovery codes: the old ones stay.
     enable_totp(&e.state.db, &t, "alice");
     let before = e.state.db.recovery_count(&t, "alice").unwrap();

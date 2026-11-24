@@ -1428,7 +1428,20 @@ async fn sso_account_login_flow_proof() {
         (StatusCode::SEE_OTHER, format!("/login?next={g}").as_str())
     );
     assert_eq!(e.state.db.token_list(&alpha, "bob").unwrap().len(), 1);
-    // AUTH-03: SSO account turning ON TOTP on an optional tenant needs a fresh sign-in.
+    // AUTH-03: SSO account turning ON TOTP on an optional tenant needs a fresh sign-in — checked already in
+    // `/2fa/start` so a stale session does not display a QR code that `/2fa/confirm` would immediately invalidate.
+    let (cookie, csrf) = bob_signs_in(&e, &ca).await;
+    let c = [A, ("cookie", cookie.as_str())];
+    e.state.db.exec_for_test(&format!(
+        "UPDATE session SET created_at = created_at - {} WHERE user_id = 'bob';",
+        crate::web::FRESH_SIGN_IN + 1
+    ));
+    let (s, h, _) = call(&e.app, "POST", "/web/account/2fa/start", &c, &format!("csrf={csrf}")).await;
+    assert_eq!(
+        (s, h["location"].to_str().unwrap()),
+        (StatusCode::SEE_OTHER, "/login?next=/web/account")
+    );
+    // And if the session ages between `/2fa/start` and `/2fa/confirm`, `/2fa/confirm` also refuses and asks to sign in.
     let (cookie, csrf) = bob_signs_in(&e, &ca).await;
     let c = [A, ("cookie", cookie.as_str())];
     let (s, _, page) = call(&e.app, "POST", "/web/account/2fa/start", &c, &format!("csrf={csrf}")).await;

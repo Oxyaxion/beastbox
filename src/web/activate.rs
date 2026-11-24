@@ -151,8 +151,20 @@ pub(super) async fn submit(
         return dead(lang);
     };
     let n = needs(&t, &app, &row);
+    let mac = t.mac(token.as_bytes());
+    let link_key = {
+        use std::fmt::Write;
+        let mut s = String::with_capacity(4 + 64);
+        s.push_str("act:");
+        for b in mac {
+            let _ = write!(s, "{b:02x}");
+        }
+        s
+    };
     let again = |code: StatusCode, m: &str| render(code, &page_for(&app, &t, lang, &origin, (&row, n, &token), m));
-    if t.failures().ip_blocked(ip.0) || (n.current && t.failures().account_blocked(&row.user)) {
+    // Per-link (not per-account) password limit: an anonymous /login spammer cannot lock out an admin activation link,
+    // while someone holding the 256-bit link still cannot brute-force the current password across IPs.
+    if t.failures().ip_blocked(ip.0) || (n.current && t.failures().link_blocked(&link_key)) {
         return too_many();
     }
     let field = |k: &str| form_field(&body, k).unwrap_or_default();
@@ -190,7 +202,6 @@ pub(super) async fn submit(
     };
     let (app2, t2, user) = (app.clone(), t.clone(), row.user.clone());
     let current = field("current");
-    let mac = t.mac(token.as_bytes());
     let done = blocking(move || -> crate::Result<Result<Option<Vec<String>>, ()>> {
         let (db, t) = (&app2.db, &t2);
         if n.current && auth::verify_human(db, t, &user, &current, &app2.dummy_hash)?.is_none() {
@@ -238,7 +249,7 @@ pub(super) async fn submit(
         Ok(Ok(Err(()))) => {
             tracing::warn!(tenant = t.name(), ip = %ip.0, user = row.user, "activation: wrong current password");
             t.failures().record_ip(ip.0);
-            t.failures().record_account(&row.user);
+            t.failures().record_link(&link_key);
             again(
                 StatusCode::UNAUTHORIZED,
                 lang.t("Wrong current password: nothing was changed."),

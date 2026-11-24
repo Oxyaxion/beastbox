@@ -173,7 +173,10 @@ impl Failures {
     }
 
     fn unknown_blocked_at(&self, user: &str, now: Instant) -> bool {
-        let Ok(mut m) = self.by_unknown.lock() else { return true };
+        // Anti-enumeration mirror only: fail open on a poisoned lock so it can never lock out real accounts.
+        let Ok(mut m) = self.by_unknown.lock() else {
+            return false;
+        };
         match m.get(user) {
             Some(&(n, t)) if now.duration_since(t) < ACCOUNT_WINDOW => n >= ACCOUNT_MAX_FAILS,
             Some(_) => {
@@ -1339,9 +1342,14 @@ pub(crate) mod tests {
         assert!(f.account_blocked_at("ghost", t0));
         assert!(f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW - Duration::from_millis(1)));
         assert!(!f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW));
-        // Restarting after expiry counts from 1 again.
-        f.record_unknown_account_at("ghost", t0 + ACCOUNT_WINDOW);
-        assert!(!f.account_blocked_at("ghost", t0 + ACCOUNT_WINDOW));
+        // Restarting at exact expiry resets the window (`>=`, not `>`): 9 failures stay open, 10th locks.
+        let t1 = t0 + ACCOUNT_WINDOW;
+        for _ in 0..ACCOUNT_MAX_FAILS - 1 {
+            f.record_unknown_account_at("ghost", t1);
+            assert!(!f.account_blocked_at("ghost", t1));
+        }
+        f.record_unknown_account_at("ghost", t1);
+        assert!(f.account_blocked_at("ghost", t1));
         // Invalid syntax is never stored.
         for _ in 0..ACCOUNT_MAX_FAILS {
             f.record_unknown_account_at("../bad", t0);
@@ -1360,15 +1368,30 @@ pub(crate) mod tests {
         assert!(g.account_blocked_at("ghost", t0 + Duration::from_secs(2)));
         assert!(g.account_blocked_at("alice", t0 + Duration::from_secs(2)));
         assert!(!g.account_blocked_at("bob", t0 + Duration::from_secs(2)));
-        // Once all entries expire, recording reclaims them cleanly.
-        g.record_unknown_account_at("fresh", t0 + ACCOUNT_WINDOW + Duration::from_secs(2));
-        assert_eq!(g.by_unknown.lock().unwrap().len(), 1);
+        // Exact expiry boundary on `retain` (`<`, not `<=`): every entry at `t0` is reclaimed at `t0 + ACCOUNT_WINDOW`.
+        let h = Failures::default();
+        for i in 0..IP_MAX_ENTRIES {
+            h.record_unknown_account_at(&format!("exp-{i}"), t0);
+        }
+        h.record_unknown_account_at("fresh", t0 + ACCOUNT_WINDOW);
+        assert_eq!(h.by_unknown.lock().unwrap().len(), 1);
+        // Poisoned `by_unknown` mutex fails open (never locks real accounts), while `by_account` still enforces.
+        let p = Failures::default();
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = p.by_unknown.lock().unwrap();
+            panic!("poison by_unknown");
+        }));
+        assert!(!p.account_blocked_at("alice", t0));
+        for _ in 0..ACCOUNT_MAX_FAILS {
+            p.record_account_at("alice", t0);
+        }
+        assert!(p.account_blocked_at("alice", t0));
     }
 
     proptest::proptest! {
         #![proptest_config(proptest::prelude::ProptestConfig::with_cases(64))]
-        /// Any sequence of unknown-account failures never grows `by_unknown` past `IP_MAX_ENTRIES` and never locks
-        /// an unrelated real account.
+        /// Any sequence of unknown-account failures never grows `by_unknown` past `IP_MAX_ENTRIES`, accurately tracks
+        /// per-name counts across duplicate names, and never locks an unrelated real account.
         #[test]
         fn unknown_failures_never_lock_unrelated_accounts(
             names in proptest::collection::vec("[a-z0-9]{1,12}", 1..80),
@@ -1376,18 +1399,20 @@ pub(crate) mod tests {
         ) {
             let f = Failures::default();
             let t0 = Instant::now();
+            let mut counts: std::collections::HashMap<&str, u32> = std::collections::HashMap::new();
             for n in &names {
-                if n == "real-owner" {
+                if n == "alice" {
                     continue;
                 }
                 for _ in 0..repeat {
                     f.record_unknown_account_at(n, t0);
                 }
+                *counts.entry(n.as_str()).or_default() += repeat;
             }
             proptest::prop_assert!(f.by_unknown.lock().unwrap().len() <= IP_MAX_ENTRIES);
-            proptest::prop_assert!(!f.account_blocked_at("real-owner", t0));
-            if let Some(last) = names.iter().rev().find(|n| *n != "real-owner") {
-                proptest::prop_assert_eq!(f.account_blocked_at(last, t0), repeat >= ACCOUNT_MAX_FAILS);
+            proptest::prop_assert!(!f.account_blocked_at("alice", t0));
+            for (name, total) in counts {
+                proptest::prop_assert_eq!(f.account_blocked_at(name, t0), total >= ACCOUNT_MAX_FAILS);
             }
         }
     }

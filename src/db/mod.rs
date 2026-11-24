@@ -1203,13 +1203,6 @@ impl Db {
         self.conn().unwrap().execute(q, params![t.name(), user]).unwrap();
     }
 
-    /// Ends every web session of the account but the one with digest `keep`.
-    pub fn session_delete_others(&self, t: &TenantCtx, user: &str, keep: &[u8; 32]) -> Result<()> {
-        self.conn()?
-            .execute(Q_SESSION_DEL_OTHERS, params![t.name(), user, &keep[..]])?;
-        Ok(())
-    }
-
     /// Ends every web session of the account.
     pub fn session_delete_user(&self, t: &TenantCtx, user: &str) -> Result<()> {
         self.conn()?.execute(Q_SESSION_DEL_USER, params![t.name(), user])?;

@@ -542,7 +542,7 @@ pub async fn flow_submit(
         let form = flow_form(lang, (&origin.0, origin.1), &w.csrf, field, m);
         return page(lang, StatusCode::FORBIDDEN, &form);
     }
-    match crate::web::reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+    match crate::web::reproof(&app, &w, &h, ip, &body, crate::db::now_secs()).await {
         Ok(()) => {}
         Err(crate::web::Unproven::Wrong) => {
             let field = w.reproof().field();

@@ -1145,7 +1145,9 @@ async fn login_lockout_does_not_reveal_existing_accounts() {
 
 /// AUTH-04: wrong passwords across distinct addresses lock the account on every password-verifying web route
 /// (`/web/account/password`, `/web/account/tokens`, `/web/account/qr`, `/web/account/2fa/confirm`, `/web/account/2fa`,
-/// and Login Flow), while another user and the other tenant stay unaffected.
+/// and Login Flow), except on the owner's known device (so anonymous `/login` spam cannot DoS the owner), while
+/// another user and the other tenant stay unaffected. Also verifies `change_password` and `totp_manage` each record
+/// per-account failures directly.
 #[tokio::test]
 async fn account_password_lockout_holds_across_ips_on_web_forms() {
     let e = env();
@@ -1165,7 +1167,7 @@ async fn account_password_lockout_holds_across_ips_on_web_forms() {
         .await;
         assert_eq!(s, StatusCode::UNAUTHORIZED, "ip {ip}");
     }
-    // From a fresh IP, even the right password gets 429 on every password-checking form.
+    // From a fresh IP without the known-device mark, even the right password gets 429 on every password-checking form.
     let fresh = [A, ("cookie", cookie.as_str()), ("x-real-ip", "203.0.113.99")];
     let (_, _, flow_body) = call(
         &e.app,
@@ -1202,15 +1204,51 @@ async fn account_password_lockout_holds_across_ips_on_web_forms() {
             "{path}"
         );
     }
-    // Enable TOTP directly and verify /web/account/2fa is also blocked by account password lockout.
+    // Enable TOTP directly and verify /web/account/2fa is also blocked without the known-device mark.
     let _ = crate::auth::tests::enable_totp(&e.state.db, &t, "alice");
-    let body = format!(
+    let totp_body = format!(
         "csrf={csrf}&op=codes&password=pw-alice&code={}",
         crate::auth::tests::code_at(0)
     );
     assert_eq!(
-        call(&e.app, "POST", "/web/account/2fa", &fresh, &body).await.0,
+        call(&e.app, "POST", "/web/account/2fa", &fresh, &totp_body).await.0,
         StatusCode::TOO_MANY_REQUESTS
+    );
+    // Known-device exemption (M2): the owner's browser keeps access on reproof, 2fa management and password change
+    // even while the account is under `/login` spam from outside.
+    let known_cookie = format!(
+        "{cookie}; {}={}",
+        crate::web::cookie_name(&e.state, "known"),
+        auth::known_device(&t, "alice")
+    );
+    let known_hdr = [A, ("cookie", known_cookie.as_str()), ("x-real-ip", "203.0.113.99")];
+    assert_eq!(
+        call(
+            &e.app,
+            "POST",
+            "/web/account/tokens",
+            &known_hdr,
+            &format!("csrf={csrf}&label=x&password=pw-alice")
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(&e.app, "POST", "/web/account/2fa", &known_hdr, &totp_body).await.0,
+        StatusCode::OK
+    );
+    assert_eq!(
+        call(
+            &e.app,
+            "POST",
+            "/web/account/password",
+            &known_hdr,
+            &format!("csrf={csrf}&current=pw-alice&new=mon-nouveau-secret-42")
+        )
+        .await
+        .0,
+        StatusCode::OK
     );
     // Other tenant's alice is untouched from the same fresh IP.
     let (bc, bcsrf) = login(&e, B, "pw-alice").await;
@@ -1226,6 +1264,73 @@ async fn account_password_lockout_holds_across_ips_on_web_forms() {
         .await
         .0,
         StatusCode::OK
+    );
+    // `change_password` directly records per-account failures across IPs.
+    let e_pw = env();
+    let (c_pw, csrf_pw) = login(&e_pw, A, "pw-alice").await;
+    for i in 0..10u32 {
+        let ip = format!("192.0.2.{}", i + 1);
+        let h = [A, ("cookie", c_pw.as_str()), ("x-real-ip", ip.as_str())];
+        assert_eq!(
+            call(
+                &e_pw.app,
+                "POST",
+                "/web/account/password",
+                &h,
+                &format!("csrf={csrf_pw}&current=faux&new=mon-nouveau-secret-42")
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let h = [A, ("cookie", c_pw.as_str()), ("x-real-ip", "203.0.113.77")];
+    assert_eq!(
+        call(
+            &e_pw.app,
+            "POST",
+            "/web/account/password",
+            &h,
+            &format!("csrf={csrf_pw}&current=pw-alice&new=mon-nouveau-secret-42")
+        )
+        .await
+        .0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+    // `totp_manage` directly records per-account failures across IPs.
+    let e_tf = env();
+    let t_tf = e_tf.state.registry.by_name("alpha").unwrap();
+    let (c_tf, csrf_tf) = login(&e_tf, A, "pw-alice").await;
+    let _ = crate::auth::tests::enable_totp(&e_tf.state.db, &t_tf, "alice");
+    let code = crate::auth::tests::code_at(0);
+    for i in 0..10u32 {
+        let ip = format!("192.0.2.{}", i + 1);
+        let h = [A, ("cookie", c_tf.as_str()), ("x-real-ip", ip.as_str())];
+        assert_eq!(
+            call(
+                &e_tf.app,
+                "POST",
+                "/web/account/2fa",
+                &h,
+                &format!("csrf={csrf_tf}&op=codes&password=faux&code={code}")
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    let h = [A, ("cookie", c_tf.as_str()), ("x-real-ip", "203.0.113.78")];
+    assert_eq!(
+        call(
+            &e_tf.app,
+            "POST",
+            "/web/account/2fa",
+            &h,
+            &format!("csrf={csrf_tf}&op=codes&password=pw-alice&code={code}")
+        )
+        .await
+        .0,
+        StatusCode::TOO_MANY_REQUESTS
     );
 }
 
@@ -1260,7 +1365,9 @@ async fn forms_without_a_session_refuse_other_sites() {
             "{hdr:?}"
         );
     }
-    // Regression: `Referrer-Policy: no-referrer` makes a real browser send this pair on our own form.
+    let (_, gh, _) = call(&e.app, "GET", "/login", &[A, p], "").await;
+    assert_eq!(gh["referrer-policy"].to_str().unwrap(), "same-origin");
+    // Regression: even when a browser sends `Origin: null` alongside `Sec-Fetch-Site: same-origin`, it passes.
     let browser = [A, p, ("sec-fetch-site", "same-origin"), ("origin", "null")];
     assert_eq!(
         call(&e.app, "POST", "/login", &browser, body).await.0,

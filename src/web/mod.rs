@@ -532,9 +532,22 @@ pub(crate) enum Unproven {
     Busy,
 }
 
+/// Has this browser already signed in to `user` in `t` (`__Host-bbknown`, M2)? Exempts the owner's known device
+/// from the per-account password lockout so anonymous `/login` spam cannot lock them out.
+fn is_known_device(app: &App, t: &TenantCtx, h: &HeaderMap, user: &str) -> bool {
+    cookie(h, &cookie_name(app, "known")).is_some_and(|v| auth::known_device_ok(t, user, v))
+}
+
 /// Checks the `Reproof` of `w` against the form `body` (`now`: Unix time). Failures count like a sign-in's: per IP,
-/// and per account (password or code).
-pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u8], now: i64) -> Result<(), Unproven> {
+/// and per account (password — exempted on a known device — or code).
+pub(crate) async fn reproof(
+    app: &Arc<App>,
+    w: &WebUser,
+    h: &HeaderMap,
+    ip: ClientIp,
+    body: &[u8],
+    now: i64,
+) -> Result<(), Unproven> {
     let t = w.u.tenant().clone();
     let kind = w.reproof();
     if kind == Reproof::FreshSignIn {
@@ -544,8 +557,9 @@ pub(crate) async fn reproof(app: &Arc<App>, w: &WebUser, ip: ClientIp, body: &[u
             Err(Unproven::Stale)
         };
     }
+    let known = is_known_device(app, &t, h, w.u.user());
     if t.failures().ip_blocked(ip.0)
-        || (kind == Reproof::Password && t.failures().account_blocked(w.u.user()))
+        || (kind == Reproof::Password && t.failures().account_blocked(w.u.user()) && !known)
         || (kind == Reproof::Code && t.failures().code_blocked(w.u.user()))
     {
         return Err(Unproven::TooMany);
@@ -602,8 +616,9 @@ pub(crate) async fn sign_in_again(app: &Arc<App>, w: &WebUser, next: &str) -> Re
 
 /// A form posted from another site (F1: a forged sign-in into the attacker's account, or a forged use of a link).
 /// `Sec-Fetch-Site`, set by the browser and not forgeable by a page, decides alone when present (`same-origin`/`none`
-/// pass). `Origin` is only for browsers without it; `null` is refused there. Our `Referrer-Policy: no-referrer` makes
-/// browsers send `Origin: null` on our own forms, so it cannot veto a `same-origin` verdict.
+/// pass, even if a browser also sends `Origin: null`). `Origin` is the fallback for browsers/contexts without Fetch
+/// Metadata (older Safari/WebView, plain-HTTP test bench): with `Referrer-Policy: same-origin` our own forms send the
+/// real origin, while `null` and any other origin are refused.
 /// A client that sends neither (CLI, sync tools) is not a browser to protect, it is let through.
 pub(crate) fn from_another_site(h: &HeaderMap, base: &Base) -> bool {
     if let Some(s) = h.get("sec-fetch-site").and_then(|v| v.to_str().ok()) {
@@ -797,7 +812,7 @@ async fn login(
         );
     };
     // Per address, then per account — unless this device already signed in to it (M2: the owner keeps a door).
-    let known = cookie(&h, &cookie_name(&app, "known")).is_some_and(|v| auth::known_device_ok(&t, &user, v));
+    let known = is_known_device(&app, &t, &h, &user);
     if t.failures().ip_blocked(ip.0) || (t.failures().account_blocked(&user) && !known) {
         return too_many();
     }
@@ -4097,24 +4112,26 @@ async fn account_password(
         )
         .await;
     };
-    match change_password(&app, &t, ip, &w, cur, new).await {
+    match change_password(&app, &t, &h, ip, &w, cur, new).await {
         Ok((code, msg)) => account(&app, &w, lang, Notice::Password(code, msg), Default::default()).await,
         Err(r) => r,
     }
 }
 
 /// The user replaces their password, giving the current one (account page, `/web/welcome`): failures limited per IP
-/// and per account, argon2id bounded, rules of `admin::weakness`. Success ends the account's web sessions, this one
-/// included. `Err`: a response to send as is (too many failures, server busy).
+/// and per account (known-device exempt), argon2id bounded, rules of `admin::weakness`. Success ends the account's
+/// web sessions, this one included. `Err`: a response to send as is (too many failures, server busy).
 async fn change_password(
     app: &Arc<App>,
     t: &TenantCtx,
+    h: &HeaderMap,
     ip: ClientIp,
     w: &WebUser,
     cur: String,
     new: String,
 ) -> Result<(StatusCode, &'static str), Response> {
-    if t.failures().ip_blocked(ip.0) || t.failures().account_blocked(w.u.user()) {
+    let known = is_known_device(app, t, h, w.u.user());
+    if t.failures().ip_blocked(ip.0) || (t.failures().account_blocked(w.u.user()) && !known) {
         return Err(too_many());
     }
     let Ok(Ok(_permit)) = tokio::time::timeout(Duration::from_secs(2), app.argon.acquire()).await else {
@@ -4190,6 +4207,11 @@ async fn totp_start(
         let n = Notice::TwoFa(StatusCode::CONFLICT, "Two-step verification is already on.");
         return account(&app, &w, lang, n, Default::default()).await;
     }
+    // SSO accounts need a fresh sign-in to confirm setup; check before showing a session-derived QR that would become
+    // an orphan entry in the authenticator app if `totp_confirm` had to end the session.
+    if w.reproof() == Reproof::FreshSignIn && crate::db::now_secs().saturating_sub(w.signed_in) > FRESH_SIGN_IN {
+        return sign_in_again(&app, &w, "/web/account").await;
+    }
     let setup = totp_qr(lang, &origin, w.u.user(), &totp::setup_secret(&t, &w.secret));
     let tf = TwoFaExtra {
         setup: Some(setup),
@@ -4253,7 +4275,7 @@ async fn totp_confirm(
         let n = Notice::TwoFa(StatusCode::CONFLICT, "Two-step verification is already on.");
         return account(&app, &w, lang, n, Default::default()).await;
     }
-    match reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+    match reproof(&app, &w, &h, ip, &body, crate::db::now_secs()).await {
         Ok(()) => {}
         Err(Unproven::Wrong) => {
             let n = Notice::TwoFa(StatusCode::UNAUTHORIZED, "Wrong password: nothing was changed.");
@@ -4339,9 +4361,10 @@ async fn totp_manage(
         );
         return account(&app, &w, lang, n, Default::default()).await;
     }
+    let known = is_known_device(&app, &t, &h, w.u.user());
     if t.failures().ip_blocked(ip.0)
         || t.failures().code_blocked(w.u.user())
-        || (w.has_password && t.failures().account_blocked(w.u.user()))
+        || (w.has_password && t.failures().account_blocked(w.u.user()) && !known)
     {
         return too_many();
     }
@@ -4599,7 +4622,7 @@ async fn welcome_post(
         let m = lang.t("The two new passwords differ: nothing was changed.");
         return welcome_page(&app, lang, &w, StatusCode::BAD_REQUEST, m);
     }
-    match change_password(&app, &t, ip, &w, cur, new).await {
+    match change_password(&app, &t, &h, ip, &w, cur, new).await {
         Ok((StatusCode::OK, _)) => {
             let c = set_cookie(&app, &cookie_name(&app, "sess"), "", 0);
             let page = message(
@@ -4642,7 +4665,7 @@ async fn token_create(
         Err(r) => return r,
     };
     let lang = lang(&app, &h);
-    if let Err(e) = reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+    if let Err(e) = reproof(&app, &w, &h, ip, &body, crate::db::now_secs()).await {
         return unproven(&app, &w, lang, e).await;
     }
     let label: String = form_field(&body, "label")
@@ -4695,7 +4718,7 @@ async fn qr_create(
         Err(r) => return r,
     };
     let lang = lang(&app, &h);
-    if let Err(e) = reproof(&app, &w, ip, &body, crate::db::now_secs()).await {
+    if let Err(e) = reproof(&app, &w, &h, ip, &body, crate::db::now_secs()).await {
         return unproven(&app, &w, lang, e).await;
     }
     let label = lang.t("Mobile app (QR code)");

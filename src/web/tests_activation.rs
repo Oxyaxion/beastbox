@@ -201,11 +201,10 @@ async fn the_password_alone_no_longer_binds_a_phone() {
     assert_eq!((s, location(&h)), (StatusCode::SEE_OTHER, "/web/2fa-setup"));
 }
 
-/// An account that already has a password (`2fa-reset`, an account from before): the link alone is not enough, it asks
-/// An account that already has a password (`user 2fa-reset` on a required tenant): the link is not enough, it asks
-/// the current password too — a wrong one changes nothing, keeps the link and counts per address AND per account
-/// (10 wrong passwords across addresses lock the account even from a fresh IP, while another account/tenant stays
-/// open); right, the phone is bound and the account signs in with password and code.
+/// An account that already has a password (`user 2fa-reset` on a required tenant): the link alone is not enough, it
+/// asks the current password too — wrong passwords change nothing, keep the link, and count per IP AND per link (so 10
+/// failures across IPs lock that link, while anonymous `/login` spam on the account cannot lock an admin link and
+/// another link or tenant stays open); with the right password and code, the phone is bound cleanly.
 #[tokio::test]
 async fn an_account_with_a_password_proves_it_with_the_link() {
     let e = env_mode(TwoFactor::Required);
@@ -213,6 +212,16 @@ async fn an_account_with_a_password_proves_it_with_the_link() {
     let (_, _, page) = call(&e.app, "GET", &path, &[A], "").await;
     assert!(page.contains("name=\"current\"") && page.contains("name=\"code\"") && !page.contains("name=\"new\""));
     let code = code_for(&e, &token);
+    // Anonymous `/login` spam locks alice's `by_account` counter, but must NOT block her admin activation link.
+    for i in 0..10u32 {
+        let ip = format!("198.18.0.{}", i + 1);
+        let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", ip.as_str())];
+        assert_eq!(
+            call(&e.app, "POST", "/login", &h, "user=alice&password=faux").await.0,
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    // 10 wrong current passwords across 10 distinct IPs lock THIS link (`by_link`) even from a fresh IP.
     for i in 0..10u32 {
         let ip = format!("192.0.2.{}", i + 1);
         let h = [A, ("x-forwarded-proto", "http"), ("x-real-ip", ip.as_str())];
@@ -228,25 +237,37 @@ async fn an_account_with_a_password_proves_it_with_the_link() {
     }
     assert_eq!(e.state.db.totp_get(&alpha(&e), "alice").unwrap(), Some((None, 0)));
     let right = form(&[("current", "pw-alice"), ("code", &code)]);
-    // AUTH-04: even from a fresh IP, the account's password lockout refuses the 11th try.
     let fresh = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "198.51.100.9")];
     assert_eq!(
         call(&e.app, "POST", &path, &fresh, &right).await.0,
         StatusCode::TOO_MANY_REQUESTS
     );
-    // Another account (clean environment for alice) with the right password binds the phone cleanly.
-    let e2 = env_mode(TwoFactor::Required);
-    let (path2, token2) = link(&e2, "alice");
-    let code2 = code_for(&e2, &token2);
+    // A fresh activation link for alice (even while `/login` is still locked on `by_account`) works after a couple
+    // wrong tries from another IP: wrong tries keep the link alive, and right password + code bind the phone.
+    let (path2, token2) = link(&e, "alice");
+    let code2 = code_for(&e, &token2);
+    let ip_a = [A, ("x-forwarded-proto", "http"), ("x-real-ip", "203.0.113.10")];
+    assert_eq!(
+        call(
+            &e.app,
+            "POST",
+            &path2,
+            &ip_a,
+            &form(&[("current", "faux"), ("code", &code2)]),
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
     let right2 = form(&[("current", "pw-alice"), ("code", &code2)]);
-    let (s, _, _) = call(&e2.app, "POST", &path2, &fresh, &right2).await;
+    let (s, _, _) = call(&e.app, "POST", &path2, &fresh, &right2).await;
     assert_eq!(s, StatusCode::OK);
     assert!(matches!(
-        e2.state.db.totp_get(&alpha(&e2), "alice").unwrap(),
+        e.state.db.totp_get(&alpha(&e), "alice").unwrap(),
         Some((Some(_), _))
     ));
     assert!(
-        e2.state.db.user_password_hash(&alpha(&e2), "alice").unwrap().is_some(),
+        e.state.db.user_password_hash(&alpha(&e), "alice").unwrap().is_some(),
         "password kept"
     );
 }
