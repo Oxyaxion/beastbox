@@ -4,6 +4,48 @@ One entry per release, newest first. Each release is a `vX.Y.Z` tag; the tag ann
 **Before upgrading** (anything that needs action or that clients will notice), then Changed, Added, Fixed, Security. Details are
 in `git log vX.Y.Z-1..vX.Y.Z`.
 
+## 0.16.3 — 2026-11-25
+
+### Before upgrading
+- **Turning on two-step verification on an `optional` tenant now asks the reproof** (your password, or a recent sign-in
+  under 5 minutes for single sign-on accounts — checked before showing the QR code). Turning it on ends every other web
+  session of the account in the same database transaction.
+
+### Changed
+- `Referrer-Policy` is now `same-origin` instead of `no-referrer`: still zero referrer sent to any other origin, while
+  same-origin forms on older browsers/WebViews without `Sec-Fetch-Site` (and on plain-HTTP test benches) now send the
+  real `Origin` header instead of `Origin: null`.
+- Account page: renamed the app-token creation button and confirmation to “Create an app key” / “App key created.”,
+  added a “Cancel” link on the 2FA QR setup card, and boxed the manual TOTP setup key (`.cle-totp`) for readability.
+
+### Fixed
+- **Oversized password/code inputs in “Connected devices”** (QR code and rclone/WebDAV forms): scoped the `.ajout`
+  flex rule to `.ajout .ligne input` so vertical `.champ` fields keep normal height.
+
+### Security
+- **Login Flow v2 CSRF**: `POST /index.php/login/v2/flow/{token}` now requires same-site origin (`web::from_another_site`)
+  and the session's `csrf` token before checking the reproof, closing same-site/subdomain CSRF against fresh SSO
+  sessions and preventing forced logouts of stale SSO sessions.
+- **Account existence non-enumeration on `/login`**: unknown valid-syntax usernames now mirror the 10-failures / 15-min
+  lockout in a separate bounded table (`by_unknown`, 4,096 entries, evicting unblocked noise first, fail-open on lock
+  poisoning) so `429` vs `401` no longer reveals whether an account exists while fake names can never lock real
+  accounts.
+- **Two-step enrollment reproof and atomic session revocation**: `POST /web/account/2fa/confirm` now requires `Reproof`
+  (preventing a stolen session from binding an attacker's phone on `optional` tenants) and revokes other web sessions
+  atomically inside the `totp_enable` transaction.
+- **Per-account password failure limits outside `/login`**: `reproof`, `change_password` and `totp_manage` now enforce
+  and record per-account password failures across IPs while keeping the owner's known-device exemption
+  (`__Host-bbknown`, preventing anonymous `/login` spam from locking out the owner); activation links with an existing
+  password enforce per-link failure limits (`by_link`).
+
+### Tests
+- Login Flow v2 CSRF (missing/wrong token, `same-site`/`cross-site`/`Origin` refusals, stale SSO session not logged
+  out, HTML audit coverage); `by_unknown` unit boundary tests (`>=`/`<`, eviction priority, poisoned lock fail-open),
+  property test across duplicate names, and E2E non-enumeration test; `totp_confirm` reproof, DB transaction rollback
+  atomicity (`refuse DELETE session`), and SSO freshness check in `totp_start`; cross-IP per-account lockout,
+  known-device exemption, direct `change_password`/`totp_manage` recording, and activation `by_link` non-DoS tests;
+  `Referrer-Policy: same-origin` check; 2FA cancel link and app-key wording checks.
+
 ## 0.16.2 — 2026-11-23
 
 ### Fixed
