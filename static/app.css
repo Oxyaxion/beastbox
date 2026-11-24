@@ -270,7 +270,7 @@ input[type="checkbox"], input[type="radio"] { width: 1rem; height: 1rem; margin:
 .ajout summary, .mdp summary { cursor: pointer; color: var(--accent); width: fit-content; }
 .ajout form { display: grid; gap: .35rem; margin-top: .8rem; max-width: 34rem; }
 .ajout label { font-weight: 600; font-size: .92em; }
-.ajout .ligne { display: flex; flex-wrap: wrap; gap: .5rem; } .ajout input { flex: 1 1 14rem; }
+.ajout .ligne { display: flex; flex-wrap: wrap; gap: .5rem; } .ajout .ligne input { flex: 1 1 14rem; }
 /* Account: connect the mobile app with a QR code. The code stays dark on light in every theme (scanners need it). */
 .ajout-qr + .ajout { margin-top: .9rem; }
 .ajout-qr .aide { margin-top: .6rem; }
@@ -286,7 +286,11 @@ input[type="checkbox"], input[type="radio"] { width: 1rem; height: 1rem; margin:
 .qr-fini { display: flex; gap: .5rem; flex-wrap: wrap; margin: 0; }
 .qr-texte form { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
 .secret + .qr-fini { margin-top: 1rem; }
-.cle-totp { word-spacing: .35em; overflow-wrap: anywhere; }
+.cle-totp { display: block; width: fit-content; max-width: 100%; margin-top: .4rem; padding: .45rem .7rem;
+  background: light-dark(var(--survol), var(--fond)); border: 1px solid var(--bord); border-radius: var(--rayon);
+  color: var(--texte); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .95em;
+  font-weight: 600; letter-spacing: .04em; word-spacing: .45em; overflow-wrap: anywhere; user-select: all; }
+.qr-texte .envoi { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 .etat-actif { display: flex; gap: .45rem; align-items: center; margin: 1rem 0 0; }
 .etat-actif .ico { color: var(--info); }
 .codes-secours { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: .4rem 1.5rem;

@@ -4681,7 +4681,7 @@ async fn token_create(
                 &app,
                 &w,
                 lang,
-                Notice::Tokens(StatusCode::OK, "App password created."),
+                Notice::Tokens(StatusCode::OK, "App key created."),
                 (secret, String::new()),
             )
             .await

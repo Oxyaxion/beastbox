@@ -13,7 +13,7 @@
       {% else %}<p class="aide">{{ lang.t("You may be asked to sign in again first.") }}</p>{% endif %}
       <div class="champ"><label for="code-totp">{{ lang.t("Code") }}</label>
         <input id="code-totp" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
-      <div class="envoi"><button type="submit" class="principal">{{ lang.t("Confirm") }}</button></div>
+      <div class="envoi"><button type="submit" class="principal">{{ lang.t("Confirm") }}</button> <a class="bouton discret" href="/web/account#double">{{ lang.t("Cancel") }}</a></div>
     </form>
   </div>
 </div>

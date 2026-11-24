@@ -23,7 +23,7 @@
     {% if !token_msg.is_empty() %}<p class="{% if token_error %}alerte{% else %}info{% endif %}" role="{% if token_error %}alert{% else %}status{% endif %}">{{ token_msg }}</p>{% endif %}
     {% if !secret.is_empty() %}
     <div class="info secret" role="status">
-      <p>{{ lang.t("Copy this password into your software now. It will not be shown again.") }}</p>
+      <p>{{ lang.t("Copy this key into your software now. It will not be shown again.") }}</p>
       <code>{{ secret }}</code>
     </div>
     {% endif %}
@@ -84,7 +84,7 @@
         {% if reproof == "password" %}<div class="champ"><label for="tok-pw">{{ lang.t("Your password") }}</label><input id="tok-pw" name="password" type="password" autocomplete="current-password" required></div>
         {% else if reproof == "code" %}<div class="champ"><label for="tok-code">{{ lang.t("Code from the app") }}</label><input id="tok-code" name="code" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required></div>
         {% else %}<p class="aide">{{ lang.t("You may be asked to sign in again first.") }}</p>{% endif %}
-        <div class="ligne"><button type="submit">{{ lang.t("Create the password") }}</button></div>
+        <div class="ligne"><button type="submit">{{ lang.t("Create an app key") }}</button></div>
       </form>
     </details>
   </section>

@@ -101,9 +101,16 @@ async fn account_turns_it_on() {
     let secret = totp::setup_secret(&t, cookie.split_once('=').unwrap().1);
     let key = totp::grouped(&totp::base32(&secret));
     assert!(
-        s == StatusCode::OK && page.contains("<svg") && page.contains(&key),
+        s == StatusCode::OK
+            && page.contains("<svg")
+            && page.contains(&key)
+            && page.contains("href=\"/web/account#double\""),
         "{page}"
     );
+    // Cancelling (following the cancel link back to /web/account) closes the setup card with nothing stored.
+    let (s, _, back) = call(&e.app, "GET", "/web/account", &c, "").await;
+    assert!(s == StatusCode::OK && !back.contains(&key));
+    assert_eq!(e.state.db.totp_get(&t, "alice").unwrap(), Some((None, 0)));
     // The same QR code if the page is shown again (nothing stored until confirmed).
     assert!(
         call(&e.app, "POST", "/web/account/2fa/start", &c, &format!("csrf={csrf}"))

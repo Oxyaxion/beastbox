@@ -658,7 +658,11 @@ async fn account_tokens_and_password() {
     let c = [A, ("cookie", cookie.as_str())];
     let (s, _, page) = call(app, "GET", "/web/account", &c, "").await;
     assert!(s == StatusCode::OK && page.contains("used out of"));
+    assert!(page.contains("Create an app key"), "{page}");
     assert!(page.contains(&format!("Powered by Beastbox {}", env!("CARGO_PKG_VERSION"))));
+    let c_fr = [A, ("cookie", cookie.as_str()), ("accept-language", "fr")];
+    let (_, _, page_fr) = call(app, "GET", "/web/account", &c_fr, "").await;
+    assert!(page_fr.contains("Créer une clé d&#39;application"), "{page_fr}");
     let (_, _, page) = call(
         app,
         "POST",
@@ -667,6 +671,10 @@ async fn account_tokens_and_password() {
         &format!("csrf={csrf}&label=T%C3%A9l%C3%A9phone&password=pw-alice"),
     )
     .await;
+    assert!(
+        page.contains("App key created.") && page.contains("Copy this key into your software now."),
+        "{page}"
+    );
     let secret = page
         .split("<code>")
         .nth(1)
