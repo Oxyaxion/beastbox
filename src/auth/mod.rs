@@ -1365,6 +1365,9 @@ pub(crate) mod tests {
             g.record_unknown_account_at(&format!("noise-{i}"), t0 + Duration::from_secs(1));
         }
         assert_eq!(g.by_unknown.lock().unwrap().len(), IP_MAX_ENTRIES);
+        // Recording an already-present key when full must not evict another entry (`&&`, not `||`).
+        g.record_unknown_account_at("ghost", t0 + Duration::from_secs(2));
+        assert_eq!(g.by_unknown.lock().unwrap().len(), IP_MAX_ENTRIES);
         assert!(g.account_blocked_at("ghost", t0 + Duration::from_secs(2)));
         assert!(g.account_blocked_at("alice", t0 + Duration::from_secs(2)));
         assert!(!g.account_blocked_at("bob", t0 + Duration::from_secs(2)));
